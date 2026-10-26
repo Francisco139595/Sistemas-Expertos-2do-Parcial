@@ -1,17 +1,10 @@
-"""
-Motor de inferencia: lenguaje natural (español) -> átomos -> fórmulas -> árbol semántico.
-Sistemas Expertos 7E262 · CETI Colomos
-
-Este archivo no depende de Streamlit; se puede probar solo con:  python motor.py
-"""
+# Para correr el programa: py -3.12 -m streamlit run app.py
 import re
 from dataclasses import dataclass, field
 
-# =====================================================================
 # 1. Normalización de texto
 #    Se quita acento y se pasa a minúsculas SIN cambiar la longitud,
 #    para que las posiciones del texto normalizado sirvan en el original.
-# =====================================================================
 ACC = {'á': 'a', 'é': 'e', 'í': 'i', 'ó': 'o', 'ú': 'u', 'ü': 'u',
        'Á': 'a', 'É': 'e', 'Í': 'i', 'Ó': 'o', 'Ú': 'u', 'Ü': 'u', 'Ñ': 'ñ'}
 
@@ -29,7 +22,7 @@ def norm(s: str) -> str:
 
 
 class Seg:
-    """Un pedazo de texto: original (o) y normalizado (n), misma longitud."""
+    # Un pedazo de texto: original (o) y normalizado (n), misma longitud.
     def __init__(self, o, n=None):
         self.o = o
         self.n = norm(o) if n is None else n
@@ -83,12 +76,12 @@ WB, WE = r'(?<![a-zñ0-9])', r'(?![a-zñ0-9])'
 
 
 def W(alts):
-    """Expresión regular de palabras completas: W('y|e') busca 'y' o 'e' como palabra."""
+    # Expresión regular de palabras completas: W('y|e') busca 'y' o 'e' como palabra.
     return re.compile(WB + '(?:' + alts + ')' + WE)
 
 
 def all_top(seg, rx):
-    """Coincidencias que NO están dentro de paréntesis."""
+    # Coincidencias que NO están dentro de paréntesis.
     d = depth_at(seg.n)
     return [(m.start(), m.end()) for m in rx.finditer(seg.n) if m.end() > m.start() and d[m.start()] == 0]
 
@@ -109,10 +102,8 @@ def split_top(seg, rx):
     return parts, len(ms)
 
 
-# =====================================================================
 # 2. Fórmulas
 #    ('atom', id) | ('not', A) | ('and'|'or'|'imp'|'iff', A, B)
-# =====================================================================
 def At(i): return ('atom', i)
 def N(a): return ('not', a)
 def Bin(t, a, b): return (t, a, b)
@@ -122,7 +113,7 @@ OPS = {'and': '∧', 'or': '∨', 'imp': '→', 'iff': '↔'}
 
 
 def fstr(f, L, top=True):
-    """Fórmula a texto con paréntesis solo donde hacen falta."""
+    # Fórmula a texto con paréntesis solo donde hacen falta.
     if f[0] == 'atom':
         return L[f[1]]
     if f[0] == 'not':
@@ -140,9 +131,7 @@ def ops_used(f, acc=None):
     return acc
 
 
-# =====================================================================
 # 3. Átomos (p, q, r, ...)
-# =====================================================================
 LETTERS = ['p', 'q', 'r', 's', 't', 'u', 'w', 'x', 'y', 'z']
 SUB = '₀₁₂₃₄₅₆₇₈₉'
 
@@ -178,7 +167,7 @@ def clean_text(o):
 
 
 def remember_neg(ctx, f, text):
-    """Si f es un átomo, guarda la forma negada tal como la escribió el usuario."""
+    # Si f es un átomo, guarda la forma negada tal como la escribió el usuario.
     if f[0] == 'atom' and not ctx.list[f[1]].neg:
         ctx.list[f[1]].neg = clean_text(text)
 
@@ -201,10 +190,8 @@ def atom_of(ctx, o):
     return At(a.id)
 
 
-# =====================================================================
 # 4. Parser de español
 #    Precedencia (de menor a mayor): ↔, →, ∨, ∧, ¬
-# =====================================================================
 NEG_PREFIX = re.compile(r'^(no es cierto que|no es verdad que|es falso que|no ocurre que|no sucede que|no se cumple que)(?![a-zñ0-9])')
 COND_PREFIX = re.compile(r'^(si|cuando|siempre que|en caso de que)(?![a-zñ0-9])')
 
@@ -300,7 +287,7 @@ def parse(seg, ctx):
 
 
 def split_rules(text):
-    """Separa por renglones, puntos, punto y coma, o «comillas»."""
+    # Separa por renglones, puntos, punto y coma, o «comillas».
     out = []
     for line in re.split(r'\n+', text):
         line = line.strip()
@@ -318,22 +305,20 @@ def split_rules(text):
     return out
 
 
-# =====================================================================
 # 5. Texto corrido (sin puntos, comas ni comillas)
 #    Usa «si»/«entonces» y las frases que se repiten para separar reglas.
-# =====================================================================
 CONNW = {'que', 'si', 'entonces', 'y', 'e', 'o', 'u', 'ni', 'pero', 'aunque', 'ademas', 'solo', 'implica', 'cuando', 'sii'}
 STOPW = {'a', 'de', 'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'en', 'al', 'del', 'que', 'se',
          'me', 'te', 'lo', 'le', 'mi', 'su', 'es', 'con', 'por', 'para', 'ya'}
 
 
 def toks(o):
-    """Palabras con su posición en el texto: [(palabra, inicio, fin), ...]"""
+    # Palabras con su posición en el texto: [(palabra, inicio, fin), ...]
     return [(m.group(), m.start(), m.end()) for m in re.finditer(r'[a-zñ0-9]+', norm(o))]
 
 
 def split_by_si(o):
-    """Corta antes de cada «si» que empieza una regla nueva."""
+    # Corta antes de cada «si» que empieza una regla nueva.
     t = toks(o)
     if len(t) < 2:
         return [o]
@@ -360,10 +345,13 @@ def split_by_si(o):
 
 
 def repeated_phrases(seqs):
-    """Frases que aparecen 2 o más veces (candidatas a átomo). Se quedan las más largas."""
+    # Frases que aparecen 2 o más veces (candidatas a átomo). Se quedan las más largas.
     cnt = {}
+    borde = set()  # palabras sueltas que alguna vez terminan una frase
     for ws in seqs:
         for i in range(len(ws)):
+            if i + 1 == len(ws) or ws[i + 1] in CONNW:
+                borde.add(ws[i])
             for n in range(1, 9):
                 if i + n > len(ws):
                     break
@@ -377,6 +365,8 @@ def repeated_phrases(seqs):
     rep = [(k, c) for k, c in cnt.items() if c >= 2]
     keep = set()
     for k, c in rep:
+        if ' ' not in k and k not in borde:  # «hace» en «hace frío» / «hace calor» no es un átomo
+            continue
         if not any(k2 != k and c2 >= c and (' ' + k + ' ') in (' ' + k2 + ' ') for k2, c2 in rep):
             keep.add(k)
     return keep
@@ -436,7 +426,7 @@ def analyze(text):
         return all(sg and known(core(sg), ci) for sg in segs)
 
     def segmentable(ws, ci):
-        """Divide ws en piezas «[no] átomo conocido». Devuelve [(a,b), ...] o None."""
+        # Divide ws en piezas «[no] átomo conocido». Devuelve [(a,b), ...] o None.
         memo = {}
 
         def go(i):
@@ -468,12 +458,14 @@ def analyze(text):
             comma = raw.find(',')
             if ei > 0:
                 cons_start = ei + 1
-            elif comma > 0:
+            elif comma > 0 and any(x[1] > comma for x in T):
                 cons_start = next((k for k, x in enumerate(T) if x[1] > comma), len(T))
             else:  # falta «entonces»: buscar dónde termina la condición
                 best, bs = -1, 0
                 for b in range(2, len(Wd)):
                     Lw, Rw = Wd[1:b], Wd[b:]
+                    if Lw[-1] in CONNW or Lw[-1] == 'no' or Rw[0] in CONNW:
+                        continue
                     sc = 2 if all_segs_known(Lw, ci) else 0
                     rc = Rw[1:] if Rw[0] == 'no' else Rw
                     for j in range(len(rc), 0, -1):
@@ -482,7 +474,7 @@ def analyze(text):
                             break
                     if sc > bs:
                         bs, best = sc, b
-                if bs < 2 and 'no' in Wd[2:]:
+                if bs < 3 and 'no' in Wd[2:]:
                     best, bs = Wd.index('no', 2), 2
                 if best > 0 and bs >= 1:
                     insert_at, cons_start = T[best][1], best
@@ -536,11 +528,9 @@ def analyze(text):
     return ctx.list, rules, L
 
 
-# =====================================================================
 # 6. Árbol semántico (tableau)
 #    α = no bifurca: ∧, ¬∨, ¬→, ¬¬
 #    β = bifurca:    ∨, →, ↔, ¬∧, ¬↔
-# =====================================================================
 def classify(f):
     t = f[0]
     if t == 'atom':
@@ -608,7 +598,7 @@ def run_tableau(rules, L, max_steps=float('inf')):
         return n
 
     def close_check(node):
-        """Cierra la rama si tiene un átomo y su negación."""
+        # Cierra la rama si tiene un átomo y su negación.
         seen = {}
         a = node.parent
         while a:
@@ -679,7 +669,7 @@ def run_tableau(rules, L, max_steps=float('inf')):
 
 
 def model_of(leaf, n_atoms):
-    """Asignación de una rama abierta: 'V', 'F' o None (cualquier valor)."""
+    # Asignación de una rama abierta: 'V', 'F' o None (cualquier valor).
     v, path = [None] * n_atoms, []
     a = leaf
     while a:
@@ -695,7 +685,7 @@ def model_of(leaf, n_atoms):
 
 
 def y_lista(items):
-    """['a','b','c'] -> 'a, b y c'"""
+    # ['a','b','c'] -> 'a, b y c'
     if not items:
         return ''
     return items[0] if len(items) == 1 else ', '.join(items[:-1]) + ' y ' + items[-1]
@@ -705,9 +695,9 @@ DETS = {'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'mi', 'tu', 'su',
 
 
 def negar(atom):
-    """Forma negada de un átomo, en español natural.
-    Usa la que escribió el usuario; si no hay, mete «no» antes del verbo:
-    «el motor está encendido» -> «el motor no está encendido»."""
+    # Forma negada de un átomo, en español natural.
+    # Usa la que escribió el usuario; si no hay, mete «no» antes del verbo:
+    # «el motor está encendido» -> «el motor no está encendido».
     if atom.neg:
         return atom.neg
     w = atom.meaning.split()
@@ -721,7 +711,7 @@ def negar(atom):
 
 
 def frase_modelo(v, atoms):
-    """Convierte una asignación en una oración: «Se cumple cuando es de día, voy a trabajar y no llueve.»"""
+    # Convierte una asignación en una oración: «Se cumple cuando es de día, voy a trabajar y no llueve.»
     partes = []
     for j, x in enumerate(v):
         if x == 'V':
@@ -735,7 +725,6 @@ def frase_modelo(v, atoms):
     return txt
 
 
-# ---------------------------------------------------------------------
 if __name__ == '__main__':
     texto = 'Si es de día, entonces voy a trabajar.\nSi llueve, entonces no voy a trabajar.\nEs de día.'
     atoms, rules, L = analyze(texto)

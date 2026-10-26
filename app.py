@@ -1,7 +1,4 @@
-"""
-Interfaz gráfica del motor de inferencia (Streamlit).
-Correr con:   streamlit run app.py
-"""
+# Para correr el programa: py -3.12 -m streamlit run app.py
 import base64
 import html
 
@@ -9,9 +6,9 @@ import streamlit as st
 
 from motor import analyze, run_tableau, model_of, ops_used, norm, W, frase_modelo, negar
 
-st.set_page_config(page_title='Motor de Inferencia', page_icon='🌳', layout='wide')
+st.set_page_config(page_title='Motor de Inferencia', layout='wide')
 
-# ---------------------------------------------------------------- colores
+# colores
 C = dict(bg='#081017', panel='#0d1a23', panel2='#11232f', line='#1f3747', fg='#d9e6ee', dim='#7f97a6',
          accent='#ff8f3a', cyan='#63cbe8', ok='#47d68a', bad='#ff5a52')
 
@@ -65,7 +62,7 @@ KW = W('si y solo si|no es cierto que|no es verdad que|es falso que|solo si|siem
 
 
 def highlight(raw):
-    """Encierra los conectores del texto en un recuadro."""
+    # Encierra los conectores del texto en un recuadro.
     n, out, p = norm(raw), '', 0
     for m in KW.finditer(n):
         out += esc(raw[p:m.start()]) + '<span class="kw">' + esc(raw[m.start():m.end()]) + '</span>'
@@ -73,12 +70,12 @@ def highlight(raw):
     return out + esc(raw[p:])
 
 
-# ---------------------------------------------------------------- encabezado
+# encabezado
 st.markdown('<div class="eyebrow"><b>SYS EXP</b> // MOTOR DE INFERENCIA · LÓGICA PROPOSICIONAL</div>', unsafe_allow_html=True)
 st.markdown(f'<h1 style="margin-top:0">Motor de <span style="color:{C["accent"]}">Inferencia</span></h1>', unsafe_allow_html=True)
 st.caption('Del lenguaje natural al árbol semántico: escribe reglas en español y el motor encuentra las condiciones en las que todas se cumplen.')
 
-# ---------------------------------------------------------------- 01 entrada
+# 01 entrada
 col_in, col_conn = st.columns([1.6, 1])
 with col_in:
     st.markdown('### <span class="n">01</span>Base de conocimiento', unsafe_allow_html=True)
@@ -103,7 +100,7 @@ with col_conn:
     st.markdown('<p class="hint">También entiende: «e», «pero», «aunque», «u», «ni… ni», «… solo si …», «Q si P», '
                 '«cuando P, Q», «no es cierto que…».</p>', unsafe_allow_html=True)
 
-# ---------------------------------------------------------------- 02 átomos / 03 reglas
+# 02 átomos / 03 reglas
 col_a, col_r = st.columns([1, 1.7])
 with col_a:
     st.markdown('### <span class="n">02</span>Tabla de átomos', unsafe_allow_html=True)
@@ -129,7 +126,7 @@ with col_r:
             st.markdown(f'<div class="rule"><span class="rl">{r.label}</span><span class="tx">{highlight(r.raw)}{inf}</span>'
                         f'<span class="fx">{esc(r.str)}</span></div>', unsafe_allow_html=True)
 
-# ---------------------------------------------------------------- 04 árbol
+# 04 árbol
 st.markdown('### <span class="n">04</span>Árbol semántico', unsafe_allow_html=True)
 if not valid:
     st.markdown('<p class="hint">El árbol aparecerá cuando haya reglas válidas.</p>', unsafe_allow_html=True)
@@ -188,7 +185,7 @@ if models:
         hl = set(models[int(sel.split()[1]) - 1][1])
 
 
-# ---- dibujo del árbol en SVG
+# dibujo del árbol en SVG
 def tw(s, size):  # ancho aproximado de texto monoespaciado
     return len(s) * size * 0.6
 
@@ -323,7 +320,7 @@ st.markdown(f"""
 </ol>
 """, unsafe_allow_html=True)
 
-# ---------------------------------------------------------------- 05 resultado
+# 05 resultado
 st.markdown('### <span class="n">05</span>Resultado · modelos', unsafe_allow_html=True)
 if not T['done']:
     st.markdown(f'<span class="pill pend">EN PROCESO</span><span class="hint">Avanza al último paso (Completo ⏭) para ver los modelos. '
