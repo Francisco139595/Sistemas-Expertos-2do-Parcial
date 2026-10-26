@@ -1,37 +1,33 @@
-# Motor de Inferencia · Sistemas Expertos 7E262
+# Motor de Inferencia (Python) · Sistemas Expertos 7E262
 
-Del lenguaje natural al árbol semántico. Página web estática (HTML + CSS + JavaScript, sin dependencias).
+Del lenguaje natural al árbol semántico. Escribe reglas en español; el programa saca los átomos,
+traduce los conectores a fórmulas, construye el árbol semántico paso a paso y lista los modelos.
 
 ## Archivos
-- `index.html` – estructura de la página
-- `estilos.css` – diseño
-- `motor.js` – parser de español → átomos → fórmulas, y el árbol semántico (reglas α/β, cierre de ramas, modelos)
-- `app.js` – interfaz: tablas, dibujo del árbol en SVG, botones de paso a paso
+- `motor.py` – toda la lógica: parser de español, átomos, fórmulas, árbol semántico (α/β), cierre de ramas y modelos.
+- `app.py` – interfaz gráfica con Streamlit (tablas, árbol dibujado, botones paso a paso, resultados).
+- `requirements.txt` – dependencias (solo `streamlit`).
+- `.streamlit/config.toml` – tema oscuro.
+- `.vscode/launch.json` – para correr con F5 desde VS Code.
 
-## Abrir y correr dentro de Visual Studio Code
-1. Descomprime el ZIP. En VS Code: **Archivo → Abrir carpeta…** → `motor-inferencia`.
-2. VS Code te sugerirá instalar la extensión recomendada **Live Preview** (de Microsoft). Acepta.
-   (O búscala en Extensiones: `ms-vscode.live-server`.)
-3. Abre `index.html` y pulsa el ícono de vista previa (arriba a la derecha, una lupa con una pantalla),
-   o clic derecho en `index.html` → **Show Preview**.
-4. Se abre una **pestaña dentro de VS Code** con la interfaz funcionando. Al editar y guardar
-   `motor.js`, `app.js` o `estilos.css`, la pestaña se actualiza sola.
+## Correr en VS Code
+1. Abre la carpeta en VS Code (**Archivo → Abrir carpeta…**).
+2. Abre una terminal (**Terminal → New Terminal**) y ejecuta:
+   ```
+   pip install -r requirements.txt
+   ```
+3. Ejecuta:
+   ```
+   streamlit run app.py
+   ```
+   (o presiona **F5** y elige «Motor de inferencia (Streamlit)»).
+4. Se abre en `http://localhost:8501`. Para verlo dentro de VS Code:
+   `Ctrl+Shift+P` → **Simple Browser: Show** → `http://localhost:8501`.
 
-Sin instalar nada: `Ctrl+Shift+P` → **Simple Browser: Show** sirve para ver una URL
-(por ejemplo la de GitHub Pages) dentro de VS Code.
+Probar solo la lógica en consola: `python motor.py`
 
-## Publicar con URL pública (GitHub Pages)
-1. Crea un repositorio público en GitHub, por ejemplo `motor-inferencia`.
-2. En VS Code: pestaña **Control de código fuente** → *Publicar en GitHub* (o sube los 4 archivos desde la web de GitHub con *Add file → Upload files*).
-3. En GitHub: **Settings → Pages → Branch: main / (root) → Save**.
-4. En 1–2 minutos queda en `https://TU-USUARIO.github.io/motor-inferencia/` — esa es la URL que se entrega.
-
-Alternativa rápida: arrastra la carpeta a https://app.netlify.com/drop.
-
-## Caso de prueba
-```
-Si es de día, entonces voy a trabajar.
-Si llueve, entonces no voy a trabajar.
-Es de día.
-```
-Resultado esperado: R1: p → q, R2: r → ¬q, R3: p · 2 ramas cerradas, 1 abierta · modelo p = V, q = V, r = F.
+## URL pública (Streamlit Community Cloud, gratis)
+1. Sube esta carpeta a un repositorio público de GitHub.
+2. Entra a https://share.streamlit.io con tu cuenta de GitHub → **Create app**.
+3. Elige el repositorio, rama `main` y archivo `app.py` → **Deploy**.
+4. Te da una URL tipo `https://tu-app.streamlit.app` — esa es la que se entrega.

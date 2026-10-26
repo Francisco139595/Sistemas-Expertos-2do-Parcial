@@ -1,3 +1,1 @@
-{
-  "recommendations": ["ms-vscode.live-server"]
-}
+{ "recommendations": ["ms-python.python", "ms-python.debugpy"] }

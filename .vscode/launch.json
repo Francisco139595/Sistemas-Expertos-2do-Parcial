@@ -1,0 +1,21 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Motor de inferencia (Streamlit)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "streamlit",
+      "args": ["run", "app.py"],
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true
+    },
+    {
+      "name": "Probar solo el motor (consola)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/motor.py",
+      "console": "integratedTerminal"
+    }
+  ]
+}
