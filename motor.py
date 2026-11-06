@@ -362,12 +362,21 @@ def repeated_phrases(seqs):
                     continue
                 k = ' '.join(ph)
                 cnt[k] = cnt.get(k, 0) + 1
-    rep = [(k, c) for k, c in cnt.items() if c >= 2]
+    rep = {k: c for k, c in cnt.items() if c >= 2}
+    # se quita una frase si está dentro de otra más larga que se repite igual o más veces
+    tapadas = set()
+    for k, c in rep.items():
+        ws = k.split()
+        for i in range(len(ws)):
+            for j in range(i + 1, len(ws) + 1):
+                sub = ' '.join(ws[i:j])
+                if sub != k and rep.get(sub, 0) <= c:
+                    tapadas.add(sub)
     keep = set()
-    for k, c in rep:
+    for k in rep:
         if ' ' not in k and k not in borde:  # «hace» en «hace frío» / «hace calor» no es un átomo
             continue
-        if not any(k2 != k and c2 >= c and (' ' + k + ' ') in (' ' + k2 + ' ') for k2, c2 in rep):
+        if k not in tapadas:
             keep.add(k)
     return keep
 
@@ -384,13 +393,17 @@ class Rule:
 
 def analyze(text):
     # a) oraciones por puntuación y luego por «si»
-    chunks = []
-    for raw in split_rules(text):
-        chunks += split_by_si(raw)
+    chunks, corrido = [], []
+    oraciones = split_rules(text)
+    for raw in oraciones:
+        partes = split_by_si(raw)
+        chunks += partes
+        # «corrido» = el renglón traía varias reglas pegadas, o todo el texto es un solo renglón
+        corrido += [len(partes) > 1 or len(oraciones) == 1] * len(partes)
 
     # b) vocabulario conocido: frases repetidas + átomos de las otras reglas
     seqs = [[w for w, _, _ in toks(c)] for c in chunks]
-    REP = repeated_phrases([[w for w in ws if w != 'no'] for ws in seqs])  # «no está prendido» cuenta como «está prendido»
+    REP = repeated_phrases([[w for w in ws if w != 'no'] for ws in seqs]) if any(corrido) else set()  # «no está prendido» cuenta como «está prendido»
     atoms_by = []
     for c in chunks:
         cx = Ctx()
@@ -399,9 +412,20 @@ def analyze(text):
         except ValueError:
             pass
         atoms_by.append({a.key for a in cx.list})
+    # cuántas reglas usan cada átomo (para saber rápido si una frase aparece en otra regla)
+    veces = {}
+    for s_ in atoms_by:
+        for k in s_:
+            veces[k] = veces.get(k, 0) + 1
 
     def known(k, ci):
-        return bool(k) and (k in REP or any(j != ci and k in s for j, s in enumerate(atoms_by)))
+        # una frase es conocida si aparece como átomo en otra regla;
+        # en texto corrido también cuentan las frases que se repiten
+        if not k:
+            return False
+        if veces.get(k, 0) - (1 if k in atoms_by[ci] else 0) > 0:
+            return True
+        return corrido[ci] and k in REP
 
     def core(ws):
         return ' '.join(w for w in ws if w != 'no')
@@ -496,6 +520,10 @@ def analyze(text):
                 sg = segmentable(Wd[i:], ci)
                 if not sg:
                     continue
+                # si lo de la izquierda no es un átomo conocido, no se corta antes de un artículo:
+                # «salen los duendes» es una sola frase, no «salen» + «los duendes»
+                if not known(ls, ci) and any(Wd[i + a2] in STOPW and Wd[i + a2] != 'es' for a2, _ in sg):
+                    continue
                 min_len = min(len([w for w in Wd[i + a:i + b] if w != 'no']) for a, b in sg)
                 sc = (100 if known(ls, ci) else 0) + 5 * len(ls.split()) + 10 * min_len - len(sg)
                 if sc > best_sc:
@@ -586,7 +614,7 @@ class Node:
     close_lits: list = None
 
 
-def run_tableau(rules, L, max_steps=float('inf')):
+def run_tableau(rules, L, max_steps=float('inf'), max_nodos=None):
     nodes = []
 
     def entry(f, label=''):
@@ -662,9 +690,12 @@ def run_tableau(rules, L, max_steps=float('inf')):
         log.append({'step': step, 'src': e.label, 'str': e.str, 'rule': name, 'kind': kind,
                     'branches': [', '.join(fstr(f, L) for f in b) for b in br],
                     'n_leaves': len(leaves), 'closed': closed})
-    done = find_cand(root) is None
+        if max_nodos and len(nodes) > max_nodos:   # el árbol ya es demasiado grande para dibujarlo
+            break
+    excedido = bool(max_nodos) and len(nodes) > max_nodos
+    done = not excedido and find_cand(root) is None
     leaves_all = [n for n in nodes if not n.children]
-    return {'root': root, 'nodes': nodes, 'log': log, 'step': step, 'done': done,
+    return {'root': root, 'nodes': nodes, 'log': log, 'step': step, 'done': done, 'excedido': excedido,
             'open': open_leaves(root), 'closed_count': sum(1 for n in leaves_all if n.closed)}
 
 
@@ -682,6 +713,319 @@ def model_of(leaf, n_atoms):
                     v[e.f[1][1]] = 'F'
         a = a.parent
     return v, path
+
+
+# 7. Método rápido para bases grandes
+#    Es el mismo árbol semántico, pero sin dibujarlo: se recorre rama por rama (primero en profundidad)
+#    y cada rama se cierra en cuanto aparece una contradicción. Así aguanta miles de reglas.
+#    Primero cada regla se pasa a cláusulas: listas de letras o letras negadas unidas con ∨.
+
+def a_clausulas(f, positivo=True):
+    # regresa una lista de cláusulas (conjunción de disyunciones) equivalente a f (o a ¬f)
+    t = f[0]
+    if t == 'atom':
+        return [[f[1] + 1 if positivo else -(f[1] + 1)]]
+    if t == 'not':
+        return a_clausulas(f[1], not positivo)
+    a, b = f[1], f[2]
+    if t == 'imp':
+        return a_clausulas(('or', ('not', a), b), positivo)
+    if t == 'iff':
+        if positivo:
+            return a_clausulas(('and', ('imp', a, b), ('imp', b, a)))
+        return a_clausulas(('or', ('and', a, ('not', b)), ('and', ('not', a), b)))
+    es_y = (t == 'and') == positivo  # De Morgan: ¬(A ∧ B) = ¬A ∨ ¬B
+    ca, cb = a_clausulas(a, positivo), a_clausulas(b, positivo)
+    if es_y:
+        return ca + cb
+    return [x + y for x in ca for y in cb]
+
+
+def limpiar(clausulas):
+    # quita letras repetidas y cláusulas que siempre son verdaderas (p ∨ ¬p)
+    out = []
+    for c in clausulas:
+        s = set(c)
+        if any(-x in s for x in s):
+            continue
+        out.append(list(dict.fromkeys(c)))
+    return out
+
+
+def resolver_rapido(rules, n_atoms, max_modelos=50, max_segundos=30, max_nodos_arbol=3000):
+    import time
+    inicio = time.time()
+    clausulas, origen = [], []         # origen: de qué regla salió cada cláusula
+    for r in rules:
+        for c in limpiar(a_clausulas(r.f)):
+            clausulas.append(c)
+            origen.append(r.label)
+    val = [0] * (n_atoms + 1)          # 1 = V, -1 = F, 0 = sin valor
+    pila = []                          # letras asignadas, en orden
+    vigilantes = {}                    # letra -> cláusulas que la vigilan
+    unitarias = []
+    for i, c in enumerate(clausulas):
+        if len(c) == 1:
+            unitarias.append(c[0])
+        else:
+            vigilantes.setdefault(c[0], []).append(i)
+            vigilantes.setdefault(c[1], []).append(i)
+
+    def valor(l):
+        v = val[abs(l)]
+        return v if l > 0 else -v
+
+    def asignar(l):
+        val[abs(l)] = 1 if l > 0 else -1
+        pila.append(l)
+
+    choques = []                       # átomos donde se cerró una rama
+
+    def propagar(desde):
+        # aplica todas las consecuencias obligadas; regresa False si la rama se cierra
+        i = desde
+        while i < len(pila):
+            l = pila[i]
+            i += 1
+            falsa = -l
+            lista = vigilantes.get(falsa, [])
+            j = 0
+            while j < len(lista):
+                ci = lista[j]
+                c = clausulas[ci]
+                if c[0] == falsa:
+                    c[0], c[1] = c[1], c[0]
+                if valor(c[0]) == 1:
+                    j += 1
+                    continue
+                for k in range(2, len(c)):
+                    if valor(c[k]) != -1:
+                        c[1], c[k] = c[k], c[1]
+                        vigilantes.setdefault(c[1], []).append(ci)
+                        lista[j] = lista[-1]
+                        lista.pop()
+                        break
+                else:
+                    if valor(c[0]) == -1:
+                        choques.append(abs(l) - 1)
+                        return False
+                    if valor(c[0]) == 0:
+                        asignar(c[0])
+                    j += 1
+        return True
+
+    def sin_cumplir():
+        # primera cláusula que todavía no se cumple
+        for i, c in enumerate(clausulas):
+            if not any(valor(x) == 1 for x in c):
+                return i
+        return None
+
+    # árbol que se va recorriendo: cada nodo guarda las letras que se agregaron en ese tramo de la rama
+    arbol = []
+    cortado = [False]
+
+    def nuevo_nodo(padre, decision, regla):
+        if padre is None and arbol:
+            return None
+        if len(arbol) >= max_nodos_arbol or (padre is not None and padre < 0):
+            cortado[0] = True
+            return -1
+        arbol.append({'padre': padre, 'decision': decision, 'regla': regla, 'lits': [],
+                      'cerrada': None, 'modelo': None})
+        return len(arbol) - 1
+
+    def anotar(nodo, desde, ok):
+        if nodo is not None and nodo >= 0:
+            arbol[nodo]['lits'] = pila[desde:]
+            if not ok:
+                arbol[nodo]['cerrada'] = choques[-1] if choques else None
+
+    modelos, cerradas, decisiones = [], 0, []
+    completo = True
+    ok = True
+    actual = nuevo_nodo(None, None, '')
+    for u in unitarias:
+        if valor(u) == -1:
+            choques.append(abs(u) - 1)
+            ok = False
+            break
+        if valor(u) == 0:
+            asignar(u)
+    ok = ok and propagar(0)
+    anotar(actual, 0, ok)
+
+    while True:
+        if time.time() - inicio > max_segundos:
+            completo = False
+            break
+        if ok:
+            ci = sin_cumplir()
+            if ci is None:
+                if actual is not None and actual >= 0:
+                    arbol[actual]['modelo'] = len(modelos)
+                modelos.append([None if v == 0 else ('V' if v == 1 else 'F') for v in val[1:]])
+                if len(modelos) >= max_modelos:
+                    completo = False
+                    break
+                ok = False          # se busca la siguiente rama
+            else:
+                # bifurcación: la primera letra libre de esa regla, primero verdadera y luego falsa
+                l = next(x for x in clausulas[ci] if valor(x) == 0)
+                pos = len(pila)
+                decisiones.append((pos, l, actual, origen[ci]))
+                actual = nuevo_nodo(actual, l, origen[ci])
+                asignar(l)
+                ok = propagar(pos)
+                anotar(actual, pos, ok)
+                if not ok:
+                    cerradas += 1
+                continue
+        # regresar a la última bifurcación y tomar la otra rama
+        while decisiones:
+            pos, l, padre, regla = decisiones.pop()
+            while len(pila) > pos:
+                val[abs(pila.pop())] = 0
+            if l is not None:
+                decisiones.append((pos, None, padre, regla))   # la otra rama ya no tiene alternativa
+                actual = nuevo_nodo(padre, -l, regla)
+                asignar(-l)
+                ok = propagar(pos)
+                anotar(actual, pos, ok)
+                if not ok:
+                    cerradas += 1
+                break
+        else:
+            break
+    if not modelos and cerradas == 0 and not ok:
+        cerradas = 1
+    return {'modelos': modelos, 'cerradas': cerradas, 'completo': completo,
+            'clausulas': len(clausulas), 'choques': list(dict.fromkeys(choques))[:10],
+            'segundos': round(time.time() - inicio, 2), 'arbol': arbol, 'arbol_cortado': cortado[0]}
+
+
+# 8. Árbol completo (método clásico) para bases grandes
+#    Mismas reglas α/β que run_tableau, pero recorriendo rama por rama para aguantar muchos nodos.
+#    Orden: primero α, luego las β que cierran una rama de inmediato, y al final las demás β.
+
+def arbol_completo(rules, L, max_nodos=20000, max_segundos=25):
+    import time
+    inicio = time.time()
+
+    def lit(f):
+        return (f[1], True) if f[0] == 'atom' else (f[1][1], False)
+
+    def choca(f, asig):
+        if not is_lit(f):
+            return False
+        a, v = lit(f)
+        return a in asig and asig[a] != v
+
+    nodos = [{'padre': None, 'texto': f'raíz: R1 … R{len(rules)} verdaderas', 'fin': None}]
+    completo = True
+    abiertas = cerradas = 0
+    # cada rama pendiente: (nodo donde cuelga, asignación, fórmulas pendientes, β guardadas)
+    pila = [(0, {}, [(r.f, r.label) for r in rules], [])]
+    while pila:
+        if len(nodos) >= max_nodos or time.time() - inicio > max_segundos:
+            completo = False
+            break
+        nodo, asig, pend, betas = pila.pop()
+        asig, pend, betas = dict(asig), list(pend), list(betas)
+        fin = None
+        while fin is None:
+            # letras y fórmulas α (no bifurcan)
+            while pend and fin is None:
+                f, et = pend.pop()
+                if is_lit(f):
+                    a, v = lit(f)
+                    if a in asig and asig[a] != v:
+                        fin = 'cerrada'
+                        nodos[nodo]['fin'] = f'✕ cerrada: {L[a]} y ¬{L[a]}'
+                    asig[a] = v
+                else:
+                    c = classify(f)
+                    if c[0] == 'α':
+                        comps = c[2][0]
+                        nodos.append({'padre': nodo, 'texto': f'{et or fstr(f, L)} ({c[1]}): ' +
+                                      ', '.join(fstr(g, L) for g in comps), 'fin': None})
+                        nodo = len(nodos) - 1
+                        pend.extend((g, '') for g in comps)
+                    else:
+                        betas.append((f, et))
+            if fin is not None:
+                break
+            if not betas:
+                fin = 'abierta'
+                break
+            # β: primero una que cierre una rama enseguida
+            elegido = None
+            for i in range(len(betas) - 1, max(-1, len(betas) - 301), -1):   # se revisan las últimas 300
+                f, et = betas[i]
+                br = classify(f)[2]
+                for k, comp in enumerate(br):
+                    if any(choca(g, asig) for g in comp):
+                        elegido = (i, k)
+                        break
+                if elegido:
+                    break
+            i, k = elegido if elegido else (len(betas) - 1, None)
+            f, et = betas.pop(i)
+            nombre, br = classify(f)[1], classify(f)[2]
+            ramas = []
+            for comp in br:
+                nodos.append({'padre': nodo, 'texto': f'{et or fstr(f, L)} ({nombre}): ' +
+                              ', '.join(fstr(g, L) for g in comp), 'fin': None})
+                ramas.append(len(nodos) - 1)
+            if k is not None:
+                # esa rama se cierra de inmediato
+                g = next(g for g in br[k] if choca(g, asig))
+                a = lit(g)[0]
+                nodos[ramas[k]]['fin'] = f'✕ cerrada: {L[a]} y ¬{L[a]}'
+                cerradas += 1
+                otra = 1 - k
+                nodo = ramas[otra]
+                pend.extend((g, '') for g in br[otra])
+            else:
+                pila.append((ramas[1], dict(asig), list(pend) + [(g, '') for g in br[1]], list(betas)))
+                nodo = ramas[0]
+                pend.extend((g, '') for g in br[0])
+            if len(nodos) >= max_nodos:
+                break
+        if fin == 'cerrada':
+            cerradas += 1
+        elif fin == 'abierta':
+            abiertas += 1
+            nodos[nodo]['fin'] = f'○ abierta (modelo {abiertas})'
+    if pila:
+        completo = False
+    return {'nodos': nodos, 'completo': completo, 'abiertas': abiertas, 'cerradas': cerradas,
+            'pendientes': len(pila), 'segundos': round(time.time() - inicio, 2)}
+
+
+def arbol_en_texto(nodos):
+    # escribe el árbol como carpetas: ├─ └─ │
+    hijos = {}
+    for i, n in enumerate(nodos):
+        if n['padre'] is not None:
+            hijos.setdefault(n['padre'], []).append(i)
+    lineas = []
+    pila = [(0, '', '', True)]
+    while pila:
+        i, pref, rama, ultimo = pila.pop()
+        n = nodos[i]
+        fin = f'   {n["fin"]}' if n['fin'] else ''
+        lineas.append((pref + rama + n['texto'] + fin, n['fin'] or ''))
+        hs = hijos.get(i, [])
+        # los hijos se escriben debajo del texto de este nodo
+        nuevo = pref + {'├─ ': '│  ', '└─ ': '   '}.get(rama, '')
+        if len(hs) == 1:
+            # una sola continuación: va en el mismo nivel, sin rama nueva
+            pila.append((hs[0], nuevo, '', True))
+        else:
+            for j, h in reversed(list(enumerate(hs))):
+                pila.append((h, nuevo, '└─ ' if j == len(hs) - 1 else '├─ ', j == len(hs) - 1))
+    return lineas
 
 
 def y_lista(items):

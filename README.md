@@ -5,6 +5,7 @@ traduce los conectores a fórmulas, construye el árbol semántico paso a paso y
 
 ## Archivos
 - `motor.py` – toda la lógica: parser de español, átomos, fórmulas, árbol semántico (α/β), cierre de ramas y modelos.
+- `almacen.py` – persistencia: guarda cada base de conocimiento como .txt en la carpeta `bases/`.
 - `app.py` – interfaz gráfica con Streamlit (tablas, árbol dibujado, botones paso a paso, resultados).
 - `requirements.txt` – dependencias (solo `streamlit`).
 - `.streamlit/config.toml` – tema oscuro.

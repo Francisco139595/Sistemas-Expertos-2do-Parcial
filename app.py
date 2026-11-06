@@ -4,377 +4,672 @@ import html
 
 import streamlit as st
 
-from motor import analyze, run_tableau, model_of, ops_used, norm, W, frase_modelo, negar
+import almacen
+from motor import (analyze, run_tableau, model_of, frase_modelo, negar, resolver_rapido,
+                   arbol_completo, arbol_en_texto)
 
 st.set_page_config(page_title='Motor de Inferencia', layout='wide')
 
-# colores
-C = dict(bg='#081017', panel='#0d1a23', panel2='#11232f', line='#1f3747', fg='#d9e6ee', dim='#7f97a6',
-         accent='#ff8f3a', cyan='#63cbe8', ok='#47d68a', bad='#ff5a52')
+# colores de la consola
+BG = '#111111'
+FG = '#dddddd'
+DIM = '#777777'
+LINE = '#555555'
+OK = '#55dd55'
+BAD = '#ff5555'
+MONO = "Consolas, 'Courier New', monospace"
 
 st.markdown(f"""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=JetBrains+Mono:wght@400;500;700&display=swap');
-h1, h2, h3 {{ font-family: 'Chakra Petch', sans-serif !important; letter-spacing: .04em; }}
-.eyebrow {{ font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .14em; color: {C['dim']}; }}
-.eyebrow b {{ color: {C['accent']}; font-weight: 500; }}
-.n {{ color: {C['accent']}; margin-right: 8px; }}
-.mono {{ font-family: 'JetBrains Mono', monospace; }}
-table.t {{ width: 100%; border-collapse: collapse; }}
-table.t th {{ text-align: left; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .1em;
-             text-transform: uppercase; color: {C['dim']}; font-weight: 500; border-bottom: 1px solid {C['line']}; padding: 6px 10px; }}
-table.t td {{ border-bottom: 1px solid {C['line']}; padding: 7px 10px; vertical-align: top; }}
-table.conn tr td {{ color: {C['dim']}; }}
-table.conn tr.used td {{ color: {C['fg']}; background: rgba(255,143,58,.12); }}
-table.conn tr.used td.sym {{ color: {C['accent']}; }}
-.letter {{ display: inline-block; min-width: 28px; text-align: center; border: 1px solid {C['accent']}; color: {C['accent']};
-          font-family: 'JetBrains Mono', monospace; font-weight: 700; padding: 1px 6px; }}
-.rule {{ display: flex; gap: 14px; align-items: center; border: 1px solid {C['line']}; background: {C['panel2']};
-        padding: 10px 12px; margin-bottom: 8px; flex-wrap: wrap; }}
-.rule .rl {{ font-family: 'Chakra Petch', sans-serif; font-weight: 700; color: {C['accent']}; font-size: 17px; }}
-.rule .tx {{ flex: 1; min-width: 200px; }}
-.rule .kw {{ color: {C['accent']}; border: 1px solid {C['accent']}; padding: 0 3px; }}
-.rule .fx {{ font-family: 'JetBrains Mono', monospace; font-size: 16px; color: {C['cyan']}; }}
-.rule .inf {{ font-family: 'JetBrains Mono', monospace; font-size: 11px; color: {C['dim']}; border: 1px dashed {C['line']}; padding: 0 5px; margin-left: 6px; }}
-.rule.err {{ border-color: {C['bad']}; }}
-.rule.err .fx {{ color: {C['bad']}; font-family: inherit; font-size: 13px; }}
-.steplog {{ border-left: 3px solid {C['accent']}; background: {C['panel2']}; padding: 9px 12px; }}
-.steplog .mono {{ color: {C['cyan']}; }}
-.pill {{ font-family: 'Chakra Petch', sans-serif; font-weight: 700; letter-spacing: .12em; padding: 4px 12px; border: 1.5px solid; margin-right: 10px; }}
-.sat {{ color: {C['ok']}; border-color: {C['ok']}; }}
-.unsat {{ color: {C['bad']}; border-color: {C['bad']}; }}
-.pend {{ color: {C['dim']}; border-color: {C['line']}; }}
-.model {{ border: 1px solid {C['line']}; background: {C['panel2']}; padding: 12px; margin-bottom: 10px; }}
-.model h4 {{ margin: 0 0 6px 0; font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: .12em; color: {C['dim']}; font-weight: 500; }}
-.assign {{ font-family: 'JetBrains Mono', monospace; font-size: 17px; }}
-.V {{ color: {C['ok']}; }} .F {{ color: {C['bad']}; }} .X {{ color: {C['dim']}; }}
-.words {{ font-size: 15px; color: {C['fg']}; margin-top: 4px; }}
-.lst {{ margin-top: 8px; font-size: 14px; }}
-.lst ul {{ margin: 2px 0 0 0; padding-left: 20px; }}
-.lst li {{ margin: 0; }}
-.hint {{ font-size: 13px; color: {C['dim']}; }}
+html, body, [class*="css"], .stApp, .stMarkdown, p, li, div, span, label, textarea, button {{
+    font-family: {MONO} !important;
+}}
+[data-testid="stIconMaterial"], .material-symbols-rounded {{ font-family: 'Material Symbols Rounded' !important; }}
+.stApp {{ background: {BG}; }}
+.block-container {{ max-width: 1100px; }}
+header[data-testid="stHeader"] {{ background: {BG}; }}
+[data-testid="stVerticalBlockBorderWrapper"] {{ border: 1px solid {LINE} !important; border-radius: 0 !important; }}
+.titulo {{ color: #ffffff; font-size: 20px; letter-spacing: .08em; margin-bottom: 6px; }}
+.caja {{ color: {DIM}; font-size: 14px; margin-bottom: 2px; }}
+.linea {{ color: {FG}; font-size: 15px; line-height: 1.7; }}
+.dim {{ color: {DIM}; }}
+.V {{ color: {OK}; }}
+.F {{ color: {BAD}; }}
+.err {{ color: {BAD}; }}
+textarea {{ background: {BG} !important; color: {FG} !important; border: 1px solid {LINE} !important; border-radius: 0 !important; }}
+.stButton button {{ background: {BG}; color: {FG}; border: 1px solid {LINE}; border-radius: 0; }}
+.stButton button:hover {{ border-color: {FG}; color: #ffffff; }}
+div[data-baseweb="select"] > div {{ background: {BG}; border-radius: 0; border-color: {LINE}; }}
+[data-testid="stFileUploaderDropzone"] {{ background: {BG}; border: 1px dashed {LINE}; border-radius: 0; }}
+.stTextInput input {{ background: {BG}; color: {FG}; border-radius: 0; }}
 </style>
 """, unsafe_allow_html=True)
 
 esc = html.escape
-KW = W('si y solo si|no es cierto que|no es verdad que|es falso que|solo si|siempre que|en caso de que|entonces|'
-       'implica que|implica|cuando|si|pero|aunque|ademas|sin embargo|o bien|ni|no|tampoco|y|e|o|u')
 
 
-def highlight(raw):
-    # Encierra los conectores del texto en un recuadro.
-    n, out, p = norm(raw), '', 0
-    for m in KW.finditer(n):
-        out += esc(raw[p:m.start()]) + '<span class="kw">' + esc(raw[m.start():m.end()]) + '</span>'
-        p = m.end()
-    return out + esc(raw[p:])
+def linea(texto, clase='linea'):
+    st.markdown(f'<div class="{clase}">{texto}</div>', unsafe_allow_html=True)
 
 
-# encabezado
-st.markdown('<div class="eyebrow"><b>SYS EXP</b> // MOTOR DE INFERENCIA · LÓGICA PROPOSICIONAL</div>', unsafe_allow_html=True)
-st.markdown(f'<h1 style="margin-top:0">Motor de <span style="color:{C["accent"]}">Inferencia</span></h1>', unsafe_allow_html=True)
-st.caption('Del lenguaje natural al árbol semántico: escribe reglas en español y el motor encuentra las condiciones en las que todas se cumplen.')
+def titulo_caja(texto):
+    st.markdown(f'<div class="caja">{texto}</div>', unsafe_allow_html=True)
 
-# 01 entrada
-col_in, col_conn = st.columns([1.6, 1])
-with col_in:
-    st.markdown('### <span class="n">01</span>Base de conocimiento', unsafe_allow_html=True)
-    texto = st.text_area('Escribe las reglas y hechos. Pueden ir uno por línea, con puntos o todo corrido sin puntuación.',
-                         height=170, key='kb')
-    st.button('Construir árbol', type='primary')
 
-atoms, rules, L = analyze(texto)
+st.markdown('<div class="titulo">MOTOR DE INFERENCIA</div>', unsafe_allow_html=True)
+
+# persistencia: bases de conocimiento guardadas en la carpeta "bases"
+BORR = '(borrador)'
+
+if 'sel' not in st.session_state:
+    # al abrir el programa se recupera la última base que se tenía abierta
+    ultima = almacen.leer_actual()
+    st.session_state.sel = ultima if ultima in almacen.listar() else BORR
+    st.session_state.kb = almacen.leer_borrador() if st.session_state.sel == BORR else almacen.leer(ultima)
+if 'subida' not in st.session_state:
+    st.session_state.subida = 0
+
+
+def al_elegir():
+    # al elegir una base se carga su texto en el cuadro de reglas
+    sel = st.session_state.sel
+    st.session_state.kb = almacen.leer_borrador() if sel == BORR else almacen.leer(sel)
+
+
+def al_guardar_como():
+    nombre = st.session_state.get('nuevo_nombre', '').strip()
+    if nombre:
+        st.session_state.sel = almacen.guardar(nombre, st.session_state.kb)
+        st.session_state.nuevo_nombre = ''
+
+
+def al_borrar():
+    if st.session_state.sel != BORR:
+        almacen.borrar(st.session_state.sel)
+        st.session_state.sel = BORR
+        st.session_state.kb = almacen.leer_borrador()
+
+
+# límites para dibujar el árbol; arriba de esto se usa el método rápido sin dibujo
+MAX_REGLAS_ARBOL = 40
+MAX_NODOS = 800
+MAX_MODELOS = 10
+
+
+@st.cache_data(show_spinner=False)
+def analizar(texto):
+    return analyze(texto)
+
+
+@st.cache_data(show_spinner=False)
+def resolver(texto):
+    a, r, letras = analyze(texto)
+    v = [x for x in r if x.f]
+    return resolver_rapido(v, len(a), max_modelos=MAX_MODELOS) if v else None
+
+
+@st.cache_data(show_spinner=False)
+def pasos_arbol(texto):
+    # número de pasos del árbol completo, o None si es demasiado grande para dibujarlo
+    a, r, letras = analyze(texto)
+    v = [x for x in r if x.f]
+    if not v or len(v) > MAX_REGLAS_ARBOL:
+        return None
+    t = run_tableau(v, letras, max_nodos=MAX_NODOS)
+    return None if t['excedido'] else t['step']
+
+
+@st.cache_data(show_spinner=False)
+def construir_completo(texto, cap):
+    a, r, letras = analyze(texto)
+    v = [x for x in r if x.f]
+    arbol = arbol_completo(v, letras, max_nodos=cap)
+    return arbol, arbol_en_texto(arbol['nodos'])
+
+
+def resumen(texto):
+    # lo necesario para la tabla de resumen de una base
+    a, r, letras = analizar(texto)
+    v = [x for x in r if x.f]
+    if not v:
+        return len(r), len(a), 'sin reglas válidas', 0, True
+    res = resolver(texto)
+    if res['modelos']:
+        return len(v), len(a), 'SATISFACIBLE', len(res['modelos']), res['completo']
+    return len(v), len(a), 'INSATISFACIBLE', 0, True
+
+
+with st.container(border=True):
+    titulo_caja('bases de conocimiento')
+    archivos = st.file_uploader('cargar archivos .txt con reglas', type=['txt'], accept_multiple_files=True,
+                                key=f'subida{st.session_state.subida}')
+    if archivos:
+        ultimo = None
+        for arch in archivos:
+            ultimo = almacen.guardar(arch.name, almacen.decodificar(arch.getvalue()))
+        st.session_state.sel = ultimo
+        st.session_state.kb = almacen.leer(ultimo)
+        st.session_state.subida += 1  # limpia el cuadro de carga
+        st.rerun()
+
+    nombres = almacen.listar()
+    if st.session_state.sel not in nombres:
+        st.session_state.sel = BORR
+    st.selectbox('base actual', [BORR] + nombres, key='sel', on_change=al_elegir)
+    almacen.guardar_actual(st.session_state.sel)
+
+    if nombres:
+        def celda(t, n):
+            # rellena con espacios para que las columnas queden alineadas
+            return esc(t[:n - 2]) + '&nbsp;' * (n - len(t[:n - 2]))
+
+        filas = [celda('nombre', 24) + celda('reglas', 8) + celda('átomos', 8) + 'resultado', '─' * 62]
+        for n in nombres:
+            nr, na, res, nm, completo = resumen(almacen.leer(n))
+            color = 'V' if res == 'SATISFACIBLE' else ('F' if res == 'INSATISFACIBLE' else 'dim')
+            extra = f' ({nm}{"" if completo else "+"} modelo{"s" if nm != 1 else ""})' if nm else ''
+            filas.append(celda(n, 24) + celda(str(nr), 8) + celda(str(na), 8) + f'<span class="{color}">{res}</span>{extra}')
+        linea('<br>'.join(filas))
+        linea(f'{len(nombres)} base(s) guardada(s) en la carpeta «bases»', 'linea dim')
+    else:
+        linea('todavía no hay bases guardadas', 'linea dim')
+
+# entrada de reglas
+with st.container(border=True):
+    titulo_caja('reglas' + ('' if st.session_state.sel == BORR else f' · {esc(st.session_state.sel)}'))
+    texto = st.text_area('reglas', height=150, key='kb', label_visibility='collapsed',
+                         placeholder='Escribe las reglas y hechos en español...')
+    # guardado automático: el borrador o la base elegida
+    if st.session_state.sel == BORR:
+        almacen.guardar_borrador(texto)
+    elif texto != almacen.leer(st.session_state.sel):
+        almacen.guardar(st.session_state.sel, texto)
+    b1, b2, b3, b4 = st.columns([1, 2, 1.2, 1.2])
+    b1.button('analizar', use_container_width=True)
+    b2.text_input('nombre', key='nuevo_nombre', label_visibility='collapsed', placeholder='nombre de la base')
+    b3.button('guardar como', use_container_width=True, on_click=al_guardar_como)
+    b4.button('borrar base', use_container_width=True, on_click=al_borrar, disabled=st.session_state.sel == BORR)
+    linea('se guarda solo · si eliges una base, los cambios se guardan en su archivo', 'linea dim')
+
+atoms, rules, L = analizar(texto)
 valid = [r for r in rules if r.f]
 
-with col_conn:
-    used = set()
-    for r in valid:
-        ops_used(r.f, used)
-    filas = [('and', '«y»', '∧', 'Conjunción'), ('or', '«o»', '∨', 'Disyunción'), ('not', '«no»', '¬', 'Negación'),
-             ('imp', '«si… entonces»', '→', 'Condicional'), ('iff', '«si y solo si»', '↔', 'Bicondicional')]
-    cu = sum(1 for f in filas if f[0] in used)
-    st.markdown(f'### Conectivos <span class="hint">({cu} / 5 usados)</span>', unsafe_allow_html=True)
-    st.markdown('<table class="t conn"><tr><th>Texto</th><th>Símbolo</th><th>Nombre</th></tr>' +
-                ''.join(f'<tr class="{"used" if op in used else ""}"><td>{t}</td><td class="sym mono">{s}</td><td>{nm}</td></tr>'
-                        for op, t, s, nm in filas) + '</table>', unsafe_allow_html=True)
-    st.markdown('<p class="hint">También entiende: «e», «pero», «aunque», «u», «ni… ni», «… solo si …», «Q si P», '
-                '«cuando P, Q», «no es cierto que…».</p>', unsafe_allow_html=True)
-
-# 02 átomos / 03 reglas
-col_a, col_r = st.columns([1, 1.7])
-with col_a:
-    st.markdown('### <span class="n">02</span>Tabla de átomos', unsafe_allow_html=True)
-    if atoms:
-        st.markdown('<table class="t"><tr><th>Letra</th><th>Significado</th></tr>' +
-                    ''.join(f'<tr><td><span class="letter">{a.letter}</span></td><td>{esc(a.meaning)}</td></tr>' for a in atoms) +
-                    '</table>', unsafe_allow_html=True)
-        st.markdown('<p class="hint">La misma frase en varias reglas es el mismo átomo; «no …» se representa como ¬ de ese átomo.</p>',
-                    unsafe_allow_html=True)
-    else:
-        st.markdown('<p class="hint">Escribe al menos una regla o un hecho.</p>', unsafe_allow_html=True)
-
-with col_r:
-    st.markdown('### <span class="n">03</span>Reglas → fórmulas', unsafe_allow_html=True)
-    if not rules:
-        st.markdown('<p class="hint">Aquí aparecerá cada regla junto a su fórmula (R1: p → q…).</p>', unsafe_allow_html=True)
-    for r in rules:
-        if r.error:
-            st.markdown(f'<div class="rule err"><span class="rl">!</span><span class="tx">{esc(r.raw)}</span>'
-                        f'<span class="fx">No se pudo traducir: {esc(r.error)}</span></div>', unsafe_allow_html=True)
-        else:
-            inf = ' <span class="inf">«entonces» inferido</span>' if r.inferred else ''
-            st.markdown(f'<div class="rule"><span class="rl">{r.label}</span><span class="tx">{highlight(r.raw)}{inf}</span>'
-                        f'<span class="fx">{esc(r.str)}</span></div>', unsafe_allow_html=True)
-
-# 04 árbol
-st.markdown('### <span class="n">04</span>Árbol semántico', unsafe_allow_html=True)
-if not valid:
-    st.markdown('<p class="hint">El árbol aparecerá cuando haya reglas válidas.</p>', unsafe_allow_html=True)
+if not rules:
     st.stop()
 
-total = run_tableau(valid, L)['step']
-# al cambiar el texto se muestra el árbol completo
-if st.session_state.get('last_text') != texto:
-    st.session_state.last_text = texto
-    st.session_state.step = total
-step = min(st.session_state.get('step', total), total)
+CAJA_SCROLL = 'max-height:340px;overflow:auto'
 
-b1, b2, b3, b4, b5 = st.columns([1, 1, 2, 1, 1])
-if b1.button('⏮ Inicio', use_container_width=True, disabled=step <= 0):
-    step = 0
-if b2.button('◀ Anterior', use_container_width=True, disabled=step <= 0):
-    step = max(0, step - 1)
-if b4.button('Siguiente ▶', use_container_width=True, disabled=step >= total):
-    step = min(total, step + 1)
-if b5.button('Completo ⏭', use_container_width=True, disabled=step >= total):
-    step = total
-st.session_state.step = step
-b3.markdown(f'<div style="text-align:center;padding-top:8px" class="mono">Paso <b>{step}</b> / {total}</div>', unsafe_allow_html=True)
+# átomos y fórmulas lado a lado
+col_a, col_f = st.columns([1, 1.6])
+with col_a:
+    with st.container(border=True):
+        titulo_caja(f'átomos ({len(atoms)})')
+        linea(f'<div style="{CAJA_SCROLL}">' + '<br>'.join(f'{a.letter} = {esc(a.meaning)}' for a in atoms) + '</div>')
+with col_f:
+    with st.container(border=True):
+        errores = sum(1 for r in rules if r.error)
+        titulo_caja(f'fórmulas ({len(valid)})' + (f' · <span class="F">{errores} sin traducir</span>' if errores else ''))
+        filas = []
+        for r in rules:
+            if r.error:
+                filas.append(f'<span class="err">!&nbsp;&nbsp;&nbsp;{esc(r.raw)} → {esc(r.error)}</span>')
+            else:
+                extra = ' <span class="dim">(entonces inferido)</span>' if r.inferred else ''
+                f = esc(r.str).ljust(12).replace(' ', '&nbsp;')
+                filas.append(f'{r.label}&nbsp;&nbsp;{f}&nbsp;<span class="dim">{esc(r.raw)}</span>{extra}')
+        linea(f'<div style="{CAJA_SCROLL}">' + '<br>'.join(filas) + '</div>')
 
-T = run_tableau(valid, L, step)
-open_idx = {leaf.id: i + 1 for i, leaf in enumerate(T['open'])} if T['done'] else {}
-models = [model_of(leaf, len(atoms)) for leaf in T['open']] if T['done'] else []
+if not valid:
+    st.stop()
 
-# bitácora del paso
-if step == 0:
-    msg = f'<b>Paso 0:</b> se parte suponiendo que todas las reglas son verdaderas ({", ".join(r.label for r in valid)} en la raíz).'
-else:
-    lg = T['log'][step - 1]
-    nl = lg['n_leaves']
-    pl = 's' if nl > 1 else ''
-    if lg['kind'] == 'α':
-        how = f'no bifurca: <span class="mono">{esc(lg["branches"][0])}</span>'
+
+def mostrar_modelo(i, v, igual=''):
+    # una asignación: letras, oración, lo que se cumple y lo que no
+    asig = ' '.join(f'<span class="{x or "dim"}">{L[j]}={x or "V/F"}</span>' for j, x in enumerate(v))
+    si = ', '.join(esc(atoms[j].meaning) for j, x in enumerate(v) if x == 'V') or '-'
+    no = ', '.join(esc(atoms[j].meaning) for j, x in enumerate(v) if x == 'F') or '-'
+    libres = ', '.join(esc(atoms[j].meaning) for j, x in enumerate(v) if x is None)
+    sangria = '&nbsp;&nbsp;&nbsp;'
+    texto_m = (f'M{i + 1}: {asig}{igual}'
+               f'<br>{sangria}{esc(frase_modelo(v, atoms))}'
+               f'<br>{sangria}<span class="V">✓ se cumple:</span> {si}'
+               f'<br>{sangria}<span class="F">✕ no se cumple:</span> {no}')
+    if libres:
+        texto_m += f'<br>{sangria}<span class="dim">○ da igual:</span> {libres}'
+    linea(texto_m)
+
+
+def mostrar_svg(svg, W):
+    # muestra el dibujo con botones de zoom (0 = ajustar al ancho de la pantalla)
+    b64 = base64.b64encode(svg.encode('utf-8')).decode('ascii')
+    zoom = st.session_state.get('zoom', 0)
+    z1, z2, z3, z4, z5 = st.columns([1, 1, 1.4, 1, 1])
+    if z1.button('− zoom', use_container_width=True):
+        zoom = max(10, (zoom or 100) - 25)
+    if z2.button('+ zoom', use_container_width=True):
+        zoom = min(500, (zoom or 100) + 25)
+    if z4.button('ajustar', use_container_width=True):
+        zoom = 0
+    if z5.button('100%', use_container_width=True):
+        zoom = 100
+    st.session_state.zoom = zoom
+    z3.markdown(f'<div class="linea" style="text-align:center;padding-top:6px">'
+                f'zoom: {"ajustado" if zoom == 0 else str(zoom) + "%"}</div>', unsafe_allow_html=True)
+    # display:block + margin auto: centrado si cabe, y si es más grande se puede desplazar hasta la orilla
+    if zoom == 0:
+        estilo = f'display:block;margin:0 auto;width:100%;max-width:{W:.0f}px'
     else:
-        how = f'bifurca en <span class="mono">{esc(lg["branches"][0])}</span> | <span class="mono">{esc(lg["branches"][1])}</span>'
-    msg = (f'<b>Paso {lg["step"]}:</b> se desarrolla {lg["src"] + " = " if lg["src"] else ""}'
-           f'<span class="mono">{esc(lg["str"])}</span> con la regla <span class="mono">{esc(lg["rule"])}</span> — {how} — '
-           f'en {nl} rama{pl} abierta{pl} de abajo.')
-    if lg['closed']:
-        k = len(lg['closed'])
-        msg += f' Se cierra{"n" if k > 1 else ""} {k} rama{"s" if k > 1 else ""} ✕ ({"; ".join(esc(" y ".join(c)) for c in lg["closed"])}).'
-if T['done']:
-    msg += ' <b>Fin:</b> no quedan fórmulas por desarrollar, solo letras o letras negadas.'
-st.markdown(f'<div class="steplog">{msg}</div>', unsafe_allow_html=True)
-
-# resaltar un modelo en el árbol
-hl = set()
-if models:
-    opciones = ['(ninguno)'] + [f'Modelo {i + 1}' for i in range(len(models))]
-    sel = st.selectbox('Resaltar la rama de un modelo', opciones, index=0)
-    if sel != '(ninguno)':
-        hl = set(models[int(sel.split()[1]) - 1][1])
+        estilo = f'display:block;margin:0 auto;width:{W * zoom / 100:.0f}px;max-width:none'
+    st.markdown(f'<div style="overflow:auto;max-height:900px;border:1px solid #222">'
+                f'<img src="data:image/svg+xml;base64,{b64}" style="{estilo}"></div>', unsafe_allow_html=True)
 
 
-# dibujo del árbol en SVG
-def tw(s, size):  # ancho aproximado de texto monoespaciado
-    return len(s) * size * 0.6
+def letra_de(l):
+    # número de letra del método rápido (1 = primer átomo, negativo = negado) -> texto
+    return ('¬' if l < 0 else '') + L[abs(l) - 1]
 
 
-PADX, PADY, LH, GX, GY, MARK = 14, 9, 22, 26, 52, 46
+def resumen_letras(lits, cuantas=5):
+    txt = ', '.join(letra_de(x) for x in lits[:cuantas])
+    if len(lits) > cuantas:
+        txt += f', … (+{len(lits) - cuantas})'
+    return txt
 
 
-def measure(n):
-    w = 40
-    for e in n.entries:
-        x = tw(e.str, 15)
-        if e.applied:
-            x += 6 + tw('✓' + str(e.applied), 13)
-        if e.label:
-            x += 12 + tw(e.label, 11)
-        w = max(w, x)
-    n.w = w + 2 * PADX
-    n.h = len(n.entries) * LH + 2 * PADY - 4
-    mw = 0
-    if not n.children:
-        if n.closed:
-            mw = tw(' y '.join(n.close_lits), 11) + 8
-        elif T['done']:
-            mw = tw('○ ABIERTA · M%d' % open_idx[n.id], 12) + 8
+def dibujar_arbol_rapido(arbol, paso, hl):
+    # dibuja el árbol que recorrió el método rápido, hasta el nodo número «paso»
+    def ancho(s, size):
+        return len(s) * size * 0.6
+
+    PX, PY, LH, GX, GY, MARCA = 10, 8, 20, 30, 56, 34
+    # nodos del recorrido hasta el paso pedido
+    crudos = []
+    for i, n in enumerate(arbol[:paso + 1]):
+        crudos.append({'id': i, 'padre': n['padre'], 'hijos': [], 'dato': n})
+    for n in crudos:
+        if n['padre'] is not None:
+            crudos[n['padre']]['hijos'].append(n)
+
+    # una cadena de nodos con un solo hijo se junta en una caja, para que el árbol no sea una línea larguísima
+    nodos = []
+
+    def armar(n, padre_vis):
+        cadena = [n]
+        while n['padre'] is not None and len(cadena[-1]['hijos']) == 1:
+            cadena.append(cadena[-1]['hijos'][0])
+        ult = cadena[-1]
+        if n['padre'] is None:
+            lineas = [f'raíz: R1 … R{len(valid)} verdaderas']
+            if n['dato']['lits']:
+                lineas.append(f'obligadas ({len(n["dato"]["lits"])}): ' + resumen_letras(n['dato']['lits']))
         else:
-            mw = tw('pendiente', 11)
-    for c in n.children:
-        measure(c)
-    cs = sum(c.sw for c in n.children) + GX * max(0, len(n.children) - 1)
-    n.sw = max(n.w, mw, cs)
+            lineas = [letra_de(n['dato']['decision'])]
+            if len(cadena) > 1:
+                resto = [f'{letra_de(c["dato"]["decision"])}' for c in cadena[1:]]
+                txt = ', '.join(resto[:4]) + (f', … (+{len(resto) - 4})' if len(resto) > 4 else '')
+                lineas.append(f'luego 1ª rama en {len(resto)} bifurcacion{"es" if len(resto) > 1 else ""}: {txt}')
+            obl = sum(len(c['dato']['lits']) - 1 for c in cadena)
+            if obl:
+                todas = [x for c in cadena for x in c['dato']['lits'][1:]]
+                lineas.append(f'+ obligadas ({obl}): ' + resumen_letras(todas, 4))
+        vis = {'id': ult['id'], 'ids': [c['id'] for c in cadena], 'padre': padre_vis, 'lineas': lineas,
+               'hijos': [], 'dato': ult['dato'], 'primero': n}
+        nodos.append(vis)
+        for h in ult['hijos']:
+            vis['hijos'].append(armar(h, vis))
+        return vis
 
+    import sys
+    sys.setrecursionlimit(max(10000, sys.getrecursionlimit()))
+    armar(crudos[0], None)
+    hl = {nodos[k]['id'] for k in range(len(nodos)) if any(i in hl for i in nodos[k]['ids'])}
 
-maxy = [0]
+    def etiqueta_hoja(n):
+        d = n['dato']
+        if d['cerrada'] is not None:
+            x = L[d['cerrada']]
+            return f'✕ cerrada: {x} y ¬{x}'
+        if d['modelo'] is not None:
+            return f'○ abierta → M{d["modelo"] + 1}'
+        return '...'
 
+    def etiqueta_rama(n):
+        h = n['hijos'][0]['primero']
+        x = L[abs(h['dato']['decision']) - 1]
+        return f'paso {h["id"]} · {h["dato"]["regla"]}: {x} | ¬{x}'
 
-def place(n, cx, y):
-    n.cx, n.x, n.y = cx, cx - n.w / 2, y
-    maxy[0] = max(maxy[0], y + n.h + (0 if n.children else MARK))
-    cs = sum(c.sw for c in n.children) + GX * max(0, len(n.children) - 1)
-    x = cx - cs / 2
-    for c in n.children:
-        place(c, x + c.sw / 2, y + n.h + GY)
-        x += c.sw + GX
+    # medidas sin recursión (el árbol puede ser profundo)
+    orden = []
+    pila = [nodos[0]]
+    while pila:
+        n = pila.pop()
+        orden.append(n)
+        pila.extend(n['hijos'])
+    for n in reversed(orden):
+        n['w'] = max(30, max(ancho(t, 14) for t in n['lineas'])) + 2 * PX
+        n['h'] = len(n['lineas']) * LH + 2 * PY - 4
+        hijos = sum(c['sw'] for c in n['hijos']) + GX * max(0, len(n['hijos']) - 1)
+        extra = n['w'] + 2 * (ancho(etiqueta_rama(n), 11) + 10) if n['hijos'] else ancho(etiqueta_hoja(n), 12) + 10
+        n['sw'] = max(n['w'], extra, hijos)
+    fondo = 0
+    nodos[0]['cx'], nodos[0]['y'] = nodos[0]['sw'] / 2 + 10, 10
+    for n in orden:
+        n['x'] = n['cx'] - n['w'] / 2
+        fondo = max(fondo, n['y'] + n['h'] + (0 if n['hijos'] else MARCA))
+        hijos = sum(c['sw'] for c in n['hijos']) + GX * max(0, len(n['hijos']) - 1)
+        x = n['cx'] - hijos / 2
+        for c in n['hijos']:
+            c['cx'], c['y'] = x + c['sw'] / 2, n['y'] + n['h'] + GY + (16 if n['padre'] is None else 0)
+            x += c['sw'] + GX
+    W, H = nodos[0]['sw'] + 20, fondo + 10
 
-
-root = T['root']
-measure(root)
-M = 18
-place(root, root.sw / 2 + M, M)
-Wd, Ht = root.sw + 2 * M, maxy[0] + M
-
-edges, gnodes = [], []
-for n in T['nodes']:
-    if n.children:
-        by, sy = n.y + n.h, n.y + n.h + 16
-        on = any(c.id in hl for c in n.children)
-        edges.append(f'<line class="edge{" hl" if on else ""}" x1="{n.cx}" y1="{by}" x2="{n.cx}" y2="{sy}"/>')
-        for c in n.children:
-            edges.append(f'<line class="edge{" hl" if c.id in hl else ""}" x1="{n.cx}" y1="{sy}" x2="{c.cx}" y2="{c.y}"/>')
-        v = n.children[0].via
-        src = v['src'] if len(v['src']) <= 14 else ''
-        edges.append(f'<text class="elbl" x="{n.cx + 7}" y="{by + 13}">{v["step"]}· {esc(src)} {esc(v["rule"])}</text>')
-    leaf = not n.children
-    cls = 'nd'
-    if n.closed:
-        cls += ' closed'
-    elif leaf and T['done']:
-        cls += ' open'
-    if n.step and n.step == step:
-        cls += ' new'
-    if n.id in hl:
-        cls += ' hl'
-    g = [f'<g class="{cls}"><rect x="{n.x}" y="{n.y}" width="{n.w}" height="{n.h}" rx="2"/>']
-    for i, e in enumerate(n.entries):
-        ty, lx = n.y + PADY + i * LH + 15, n.x + PADX
-        g.append(f'<text class="ft{" done" if e.applied else ""}" x="{lx}" y="{ty}">{esc(e.str)}</text>')
-        if e.applied:
-            g.append(f'<text class="ck" x="{lx + tw(e.str, 15) + 6}" y="{ty}">✓{e.applied}</text>')
-        if e.label:
-            g.append(f'<text class="lbl" x="{n.x + n.w - PADX}" y="{ty}" text-anchor="end">{e.label}</text>')
-    if leaf:
-        b = n.y + n.h
-        if n.closed:
-            g.append(f'<text class="xm" x="{n.cx}" y="{b + 22}" text-anchor="middle">✕</text>'
-                     f'<text class="xt" x="{n.cx}" y="{b + 38}" text-anchor="middle">{esc(" y ".join(n.close_lits))}</text>')
-        elif T['done']:
-            g.append(f'<text class="om" x="{n.cx}" y="{b + 20}" text-anchor="middle">○ ABIERTA · M{open_idx[n.id]}</text>')
+    partes = []
+    for n in orden:
+        d = n['dato']
+        if n['hijos']:
+            y0 = n['y'] + n['h'] + (18 if n['padre'] is None else 0)
+            for c in n['hijos']:
+                color = FG if c['id'] in hl else LINE
+                partes.append(f'<line x1="{n["cx"]}" y1="{y0}" x2="{c["cx"]}" y2="{c["y"]}" stroke="{color}" stroke-width="1.2"/>')
+            partes.append(f'<text x="{n["x"] + n["w"] + 8}" y="{n["y"] + n["h"] - 6}" fill="{DIM}" font-size="11">'
+                          f'{esc(etiqueta_rama(n))}</text>')
+        hoja = not n['hijos']
+        if d['cerrada'] is not None:
+            borde = BAD
+        elif d['modelo'] is not None:
+            borde = OK
         else:
-            g.append(f'<text class="pm" x="{n.cx}" y="{b + 18}" text-anchor="middle">pendiente</text>')
-    g.append('</g>')
-    gnodes.append(''.join(g))
+            borde = FG if n['padre'] is None else LINE
+        grosor = 2.4 if n['id'] in hl else 1.4
+        partes.append(f'<rect x="{n["x"]}" y="{n["y"]}" width="{n["w"]}" height="{n["h"]}" fill="{BG}" '
+                      f'stroke="{borde}" stroke-width="{grosor}"/>')
+        for i, t in enumerate(n['lineas']):
+            color = FG if i == 0 else DIM
+            partes.append(f'<text x="{n["x"] + PX}" y="{n["y"] + PY + 14 + i * LH}" fill="{color}" font-size="14">{esc(t)}</text>')
+        if hoja:
+            color = BAD if d['cerrada'] is not None else (OK if d['modelo'] is not None else DIM)
+            partes.append(f'<text x="{n["cx"]}" y="{n["y"] + n["h"] + 18}" fill="{color}" font-size="12" text-anchor="middle">'
+                          f'{esc(etiqueta_hoja(n))}</text>')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
+           f'font-family="Consolas, Courier New, monospace"><rect width="100%" height="100%" fill="{BG}"/>'
+           f'{"".join(partes)}</svg>')
+    return svg, W
 
-svg_css = f"""
-.nd rect {{ fill: {C['panel']}; stroke: {C['line']}; stroke-width: 1.4; }}
-.nd.new rect {{ stroke: {C['accent']}; stroke-width: 2; }}
-.nd.closed rect {{ stroke: {C['bad']}; fill: rgba(255,90,82,.12); }}
-.nd.open rect {{ stroke: {C['ok']}; fill: rgba(71,214,138,.12); }}
-.nd.hl rect {{ stroke: {C['accent']}; stroke-width: 2.8; }}
-.edge {{ stroke: {C['dim']}; stroke-width: 1.3; opacity: .8; }}
-.edge.hl {{ stroke: {C['accent']}; stroke-width: 2.6; opacity: 1; }}
-text {{ font-family: 'JetBrains Mono', Consolas, monospace; }}
-.ft {{ font-size: 15px; font-weight: 500; fill: {C['fg']}; }}
-.ft.done {{ fill: {C['dim']}; }}
-.ck {{ fill: {C['ok']}; font-size: 13px; font-weight: 700; }}
-.lbl {{ fill: {C['dim']}; font-size: 11px; }}
-.elbl {{ fill: {C['accent']}; font-size: 11px; }}
-.xm {{ fill: {C['bad']}; font-size: 20px; font-weight: 700; }}
-.xt {{ fill: {C['bad']}; font-size: 11px; }}
-.om {{ fill: {C['ok']}; font-size: 12px; font-weight: 700; }}
-.pm {{ fill: {C['dim']}; font-size: 11px; }}
-"""
-svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{Wd}" height="{Ht}" viewBox="0 0 {Wd} {Ht}">'
-       f'<rect width="100%" height="100%" fill="{C["panel2"]}"/><style>{svg_css}</style>{"".join(edges)}{"".join(gnodes)}</svg>')
-zoom = st.slider('Zoom del árbol (%)', 40, 200, 100, 10)
-b64 = base64.b64encode(svg.encode('utf-8')).decode('ascii')
-st.markdown(f'<div style="overflow:auto;max-height:900px;border:1px solid {C["line"]};background:{C["panel2"]};text-align:center">'
-            f'<img src="data:image/svg+xml;base64,{b64}" width="{Wd * zoom / 100:.0f}" style="max-width:none" alt="Árbol semántico"></div>',
-            unsafe_allow_html=True)
 
-st.markdown(f"""
-<p class="hint">
-<span style="color:{C['ok']}">■</span> Rama abierta (modelo) &nbsp;
-<span style="color:{C['bad']}">■</span> Rama cerrada ✕ (átomo y su negación) &nbsp;
-<span style="color:{C['accent']}">■</span> Agregado en este paso &nbsp;
-<b style="color:{C['ok']}">✓n</b> fórmula ya aplicada en el paso n
-</p>
-<ol class="hint">
-<li>Se parte suponiendo que todas las reglas son verdaderas (raíz).</li>
-<li>Se aplica primero la regla que no bifurca (∧, ¬∨, ¬→, ¬¬) y después las que bifurcan (∨, →, ↔, ¬∧, ¬↔), desarrollando en todas las ramas abiertas de abajo.</li>
-<li>Una rama con un átomo y su negación se cierra (✕).</li>
-<li>Al final solo quedan letras o letras negadas: las ramas abiertas son los modelos.</li>
-</ol>
-""", unsafe_allow_html=True)
+total = pasos_arbol(texto)
+T = None
 
-# 05 resultado
-st.markdown('### <span class="n">05</span>Resultado · modelos', unsafe_allow_html=True)
-if not T['done']:
-    st.markdown(f'<span class="pill pend">EN PROCESO</span><span class="hint">Avanza al último paso (Completo ⏭) para ver los modelos. '
-                f'Ramas cerradas hasta ahora: {T["closed_count"]}.</span>', unsafe_allow_html=True)
-elif not T['open']:
-    hojas = sum(1 for n in T['nodes'] if not n.children)
-    st.markdown(f'<span class="pill unsat">INSATISFACIBLE</span> Las {hojas} ramas se cierran ✕. La base de conocimiento es '
-                f'<b>inconsistente</b>: no existe ninguna asignación de valores en la que todas las reglas se cumplan.',
-                unsafe_allow_html=True)
-    # qué frases chocan en cada rama cerrada
-    por_letra = {a.letter: a for a in atoms}
-    choques = []
-    for n in T['nodes']:
-        if n.closed:
-            letra = n.close_lits[0].lstrip('¬')
-            at = por_letra[letra]
-            txt = f'«{at.meaning}» y «{negar(at)}» ({letra} y ¬{letra})'
-            if txt not in choques:
-                choques.append(txt)
-    st.markdown('<div class="model"><h4>LO QUE NO SE PUEDE CUMPLIR</h4><div class="lst"><b class="F">✘ Contradicciones encontradas</b><ul>' +
-                ''.join(f'<li>{esc(c)} no pueden ser ciertas al mismo tiempo.</li>' for c in choques) + '</ul></div></div>',
-                unsafe_allow_html=True)
-else:
-    no, nc = len(T['open']), T['closed_count']
-    st.markdown(f'<span class="pill sat">SATISFACIBLE</span> {no} rama{"s" if no > 1 else ""} abierta{"s" if no > 1 else ""} y '
-                f'{nc} cerrada{"" if nc == 1 else "s"}. Cada rama abierta es una condición en la que <b>todas las reglas se cumplen</b>.',
-                unsafe_allow_html=True)
-    st.write('')
-    vistos = {}
-    cols = st.columns(min(3, len(models)))
-    for i, (v, _) in enumerate(models):
-        key = tuple(v)
-        dup = f' · igual a M{vistos[key]}' if key in vistos else ''
-        vistos.setdefault(key, i + 1)
-        asg = ', '.join(f'<span class="{x or "X"}">{L[j]} = {x or "V/F"}</span>' for j, x in enumerate(v))
-        words = frase_modelo(v, atoms)
-        si = [atoms[j].meaning for j, x in enumerate(v) if x == 'V']
-        no = [atoms[j].meaning for j, x in enumerate(v) if x == 'F']
-        da = [atoms[j].meaning for j, x in enumerate(v) if x is None]
-        lst = lambda xs: ''.join(f'<li>{esc(x)}</li>' for x in xs) or '<li class="X">(ninguna)</li>'
-        partes = (f'<div class="lst"><b class="V">✔ Se cumple</b><ul>{lst(si)}</ul></div>'
-                  f'<div class="lst"><b class="F">✘ No se cumple</b><ul>{lst(no)}</ul></div>')
-        if da:
-            partes += f'<div class="lst"><b class="X">○ Da igual</b><ul>{lst(da)}</ul></div>'
-        cols[i % len(cols)].markdown(f'<div class="model"><h4>MODELO {i + 1} · RAMA ABIERTA{dup}</h4>'
-                                     f'<div class="assign">{asg}</div><div class="words">{esc(words)}</div>{partes}</div>',
-                                     unsafe_allow_html=True)
-    tabla = ('<table class="t"><tr><th>Modelo</th>' + ''.join(f'<th>{a.letter} · {esc(a.meaning)}</th>' for a in atoms) + '</tr>' +
-             ''.join(f'<tr><td class="mono">M{i + 1}</td>' + ''.join(f'<td class="mono {x or "X"}"><b>{x or "V/F"}</b></td>' for x in v) + '</tr>'
-                     for i, (v, _) in enumerate(models)) + '</table>')
-    st.markdown(tabla, unsafe_allow_html=True)
-    if any(x is None for v, _ in models for x in v):
-        st.markdown('<p class="hint">V/F: esa letra no aparece en la rama, así que puede tomar cualquier valor sin romper las reglas.</p>',
+# árbol semántico paso a paso
+with st.container(border=True):
+    titulo_caja('árbol semántico')
+    RAPIDO, COMPLETO = 'rápido (con poda)', 'completo (método clásico)'
+    modo = st.radio('tipo de árbol', [RAPIDO, COMPLETO], index=1 if total is not None else 0, horizontal=True,
+                    key='modo_arbol')
+    if modo == RAPIDO:
+        # base grande: el árbol completo sería enorme, así que se dibuja el árbol que recorre el método rápido
+        res = resolver(texto)
+        arbol = res['arbol']
+        linea(f'la base tiene {len(valid)} reglas: se dibuja el árbol con poda. en cada nodo se aplican primero todas las '
+              f'letras obligadas (como las reglas que no bifurcan) y solo se bifurca cuando una regla todavía no se cumple: '
+              f'una rama con la letra verdadera y otra con la letra falsa. cada rama se cierra en cuanto aparece una contradicción.',
+              'linea dim')
+        clave = 'rap:' + str(hash(texto))
+        ultimo = len(arbol) - 1
+        if st.session_state.get('last_text') != clave:
+            st.session_state.last_text = clave
+            st.session_state.step = ultimo
+        step = min(st.session_state.get('step', ultimo), ultimo)
+        c1, c2, c3, c4, c5 = st.columns([1, 1, 1.4, 1, 1])
+        if c1.button('|<', use_container_width=True, disabled=step <= 0):
+            step = 0
+        if c2.button('<', use_container_width=True, disabled=step <= 0):
+            step = max(0, step - 1)
+        if c4.button('>', use_container_width=True, disabled=step >= ultimo):
+            step = min(ultimo, step + 1)
+        if c5.button('>|', use_container_width=True, disabled=step >= ultimo):
+            step = ultimo
+        st.session_state.step = step
+        c3.markdown(f'<div class="linea" style="text-align:center;padding-top:6px">paso {step}/{ultimo}</div>',
+                    unsafe_allow_html=True)
+        if step == 0:
+            msg = f'paso 0: se suponen verdaderas las {len(valid)} reglas y se aplican {len(arbol[0]["lits"])} letras obligadas'
+        else:
+            d = arbol[step]
+            x = letra_de(d['decision'])
+            msg = f'paso {step}: {d["regla"]} todavía no se cumple, se toma la rama {x} y se aplican {len(d["lits"]) - 1} letras obligadas'
+            if d['cerrada'] is not None:
+                msg += f' · se cierra: {L[d["cerrada"]]} y ¬{L[d["cerrada"]]}'
+            if d['modelo'] is not None:
+                msg += f' · rama abierta → M{d["modelo"] + 1}'
+        linea(esc(msg), 'linea dim')
+        linea(f'cláusulas: {res["clausulas"]} · nodos: {len(arbol)} · ramas cerradas: {res["cerradas"]} · '
+              f'tiempo: {res["segundos"]} s' + (' · se dibujan los primeros nodos' if res['arbol_cortado'] else '') +
+              ('' if res['completo'] else f' · se detuvo al encontrar {len(res["modelos"])} modelos'))
+        hl = set()
+        hojas_modelo = {d['modelo']: i for i, d in enumerate(arbol) if d['modelo'] is not None}
+        if len(hojas_modelo) > 1:
+            sel = st.selectbox('resaltar', ['resaltar rama: (ninguna)'] + [f'M{k + 1}' for k in sorted(hojas_modelo)],
+                               label_visibility='collapsed')
+            if sel.startswith('M'):
+                i = hojas_modelo[int(sel[1:]) - 1]
+                while i is not None:
+                    hl.add(i)
+                    i = arbol[i]['padre']
+        svg, W = dibujar_arbol_rapido(arbol, step, hl)
+        mostrar_svg(svg, W)
+        linea(f'recuadro <span class="V">verde</span> = rama abierta (modelo) · <span class="F">rojo</span> = rama cerrada · '
+              f'«obligadas» = letras que se deducen sin bifurcar · si el árbol no cabe, usa + zoom y desplázate', 'linea dim')
+    elif total is None:
+        # árbol completo de una base grande: método clásico construido rama por rama, escrito como carpetas
+        linea('árbol completo con el método clásico: se desarrolla cada fórmula en todas las ramas, sin poda. '
+              'con muchas reglas crece muchísimo, así que se construye hasta el número de nodos elegido.', 'linea dim')
+        cap = st.select_slider('nodos a construir', options=[2000, 5000, 10000, 20000, 50000], value=10000)
+        with st.spinner('construyendo el árbol completo...'):
+            A, lineas_arbol = construir_completo(texto, cap)
+        if A['completo']:
+            estado = '<span class="V">árbol completo terminado</span>'
+        else:
+            estado = (f'<span class="F">se construyeron {len(A["nodos"])} nodos y quedaron {A["pendientes"]} ramas sin terminar</span>'
+                      f' · el árbol completo de esta base es más grande que lo que cabe en la memoria de una computadora;'
+                      f' el resultado de abajo se calcula con el método rápido')
+        linea(f'{estado}<br>nodos: {len(A["nodos"])} · ramas abiertas: {A["abiertas"]} · ramas cerradas: {A["cerradas"]} · '
+              f'tiempo: {A["segundos"]} s')
+        cuerpo = []
+        for t, fin in lineas_arbol:
+            if fin.startswith('✕'):
+                cuerpo.append(esc(t[:-len(fin)]) + f'<span class="F">{esc(fin)}</span>')
+            elif fin.startswith('○'):
+                cuerpo.append(esc(t[:-len(fin)]) + f'<span class="V">{esc(fin)}</span>')
+            else:
+                cuerpo.append(esc(t))
+        st.markdown(f'<div style="max-height:700px;overflow:auto;white-space:pre;font-size:13px;line-height:1.5;'
+                    f'border:1px solid #222;padding:8px">' + '\n'.join(cuerpo) + '</div>', unsafe_allow_html=True)
+        st.download_button('descargar el árbol completo (.txt)', '\n'.join(t for t, _ in lineas_arbol),
+                           file_name='arbol_completo.txt')
+        linea('├─ └─ = bifurcación (β) · renglón sin rama = regla que no bifurca (α) · '
+              '<span class="F">✕</span> rama cerrada · <span class="V">○</span> rama abierta', 'linea dim')
+    else:
+        if st.session_state.get('last_text') != texto:
+            st.session_state.last_text = texto
+            st.session_state.step = total
+        step = min(st.session_state.get('step', total), total)
+
+        c1, c2, c3, c4, c5 = st.columns([1, 1, 1.4, 1, 1])
+        if c1.button('|<', use_container_width=True, disabled=step <= 0):
+            step = 0
+        if c2.button('<', use_container_width=True, disabled=step <= 0):
+            step = max(0, step - 1)
+        if c4.button('>', use_container_width=True, disabled=step >= total):
+            step = min(total, step + 1)
+        if c5.button('>|', use_container_width=True, disabled=step >= total):
+            step = total
+        st.session_state.step = step
+        c3.markdown(f'<div class="linea" style="text-align:center;padding-top:6px">paso {step}/{total}</div>',
                     unsafe_allow_html=True)
 
-st.divider()
-st.markdown('<p class="hint mono">Sistemas Expertos 7E262 · CETI Colomos · Francisco Ramiro Gómez Arce</p>', unsafe_allow_html=True)
+        T = run_tableau(valid, L, step)
+        open_idx = {leaf.id: i + 1 for i, leaf in enumerate(T['open'])} if T['done'] else {}
+        models = [model_of(leaf, len(atoms)) for leaf in T['open']] if T['done'] else []
+
+        # explicación del paso actual
+        if step == 0:
+            msg = 'paso 0: se suponen verdaderas todas las reglas (' + ', '.join(r.label for r in valid) + ')'
+        else:
+            lg = T['log'][step - 1]
+            if lg['kind'] == 'α':
+                como = 'no bifurca: ' + lg['branches'][0]
+            else:
+                como = 'bifurca en ' + lg['branches'][0] + ' | ' + lg['branches'][1]
+            msg = f'paso {step}: se aplica {lg["src"] + " = " if lg["src"] else ""}{lg["str"]} ({lg["rule"]}), {como}'
+            if lg['closed']:
+                msg += ' · se cierra: ' + '; '.join(' y '.join(c) for c in lg['closed'])
+        if T['done']:
+            msg += ' · fin'
+        linea(esc(msg), 'linea dim')
+
+        # resaltar la rama de un modelo
+        hl = set()
+        if len(models) > 1:
+            sel = st.selectbox('resaltar', ['resaltar rama: (ninguna)'] + [f'M{i + 1}' for i in range(len(models))],
+                               label_visibility='collapsed')
+            if sel.startswith('M'):
+                hl = set(models[int(sel[1:]) - 1][1])
+
+        # medidas del dibujo
+        def ancho(s, size):
+            return len(s) * size * 0.6
+
+        PX, PY, LH, GX, GY, MARCA = 10, 8, 20, 30, 56, 34
+
+        def etiqueta_rama(n):
+            # texto que va en la rama que sale de este nodo
+            v = n.children[0].via
+            src = v['src'] if len(v['src']) <= 12 else ''
+            return f'paso {v["step"]} · {src} ({v["rule"]})'.replace(' ·  (', ' · (')
+
+        def etiqueta_hoja(n):
+            if n.closed:
+                return '✕ cerrada: ' + ' y '.join(n.close_lits)
+            if T['done']:
+                return '○ abierta → M%d' % open_idx[n.id]
+            return '...'
+
+        def medir(n):
+            w = 30
+            for e in n.entries:
+                t = (e.label + ' ' if e.label else '') + e.str
+                x = ancho(t, 14)
+                if e.applied:
+                    x += 6 + ancho('✓' + str(e.applied), 12)
+                w = max(w, x)
+            n.w = w + 2 * PX
+            n.h = len(n.entries) * LH + 2 * PY - 4
+            extra = ancho(etiqueta_hoja(n), 12) + 10 if not n.children else 0
+            for c in n.children:
+                medir(c)
+            hijos = sum(c.sw for c in n.children) + GX * max(0, len(n.children) - 1)
+            if n.children:
+                extra = n.w + 2 * (ancho(etiqueta_rama(n), 11) + 10)
+            n.sw = max(n.w, extra, hijos)
+
+        fondo = [0]
+
+        def ubicar(n, cx, y):
+            n.cx, n.x, n.y = cx, cx - n.w / 2, y
+            bajo = 16 if n.parent is None else 0
+            fondo[0] = max(fondo[0], y + n.h + (0 if n.children else MARCA))
+            hijos = sum(c.sw for c in n.children) + GX * max(0, len(n.children) - 1)
+            x = cx - hijos / 2
+            for c in n.children:
+                ubicar(c, x + c.sw / 2, y + n.h + GY + bajo)
+                x += c.sw + GX
+
+        raiz = T['root']
+        medir(raiz)
+        ubicar(raiz, raiz.sw / 2 + 10, 10)
+        W, H = raiz.sw + 20, fondo[0] + 10
+
+        partes = []
+        for n in T['nodes']:
+            enc = n.id in hl
+            # ramas hacia los hijos
+            if n.children:
+                y0 = n.y + n.h + (18 if n.parent is None else 0)
+                for c in n.children:
+                    color = FG if c.id in hl else LINE
+                    partes.append(f'<line x1="{n.cx}" y1="{y0}" x2="{c.cx}" y2="{c.y}" stroke="{color}" stroke-width="1.2"/>')
+                partes.append(f'<text x="{n.x + n.w + 8}" y="{n.y + n.h - 6}" fill="{DIM}" font-size="11">{esc(etiqueta_rama(n))}</text>')
+            if n.parent is None:
+                partes.append(f'<text x="{n.cx}" y="{n.y + n.h + 13}" fill="{DIM}" font-size="11" text-anchor="middle">'
+                              f'raíz: todas las reglas verdaderas</text>')
+            # caja del nodo
+            hoja = not n.children
+            borde = BAD if n.closed else (OK if hoja and T['done'] else (FG if n.parent is None else LINE))
+            grosor = 2.4 if enc else 1.4
+            partes.append(f'<rect x="{n.x}" y="{n.y}" width="{n.w}" height="{n.h}" fill="{BG}" stroke="{borde}" stroke-width="{grosor}"/>')
+            for i, e in enumerate(n.entries):
+                ty = n.y + PY + 14 + i * LH
+                t = (e.label + ' ' if e.label else '') + e.str
+                partes.append(f'<text x="{n.x + PX}" y="{ty}" fill="{FG}" font-size="14">{esc(t)}</text>')
+                if e.applied:
+                    partes.append(f'<text x="{n.x + PX + ancho(t, 14) + 6}" y="{ty}" fill="{OK}" font-size="12">✓{e.applied}</text>')
+            if hoja:
+                color = BAD if n.closed else (OK if T['done'] else DIM)
+                partes.append(f'<text x="{n.cx}" y="{n.y + n.h + 18}" fill="{color}" font-size="12" text-anchor="middle">'
+                              f'{esc(etiqueta_hoja(n))}</text>')
+
+        svg = (f'<svg xmlns="http://www.w3.org/2000/svg" width="{W}" height="{H}" viewBox="0 0 {W} {H}" '
+               f'font-family="Consolas, Courier New, monospace"><rect width="100%" height="100%" fill="{BG}"/>'
+               f'{"".join(partes)}</svg>')
+        mostrar_svg(svg, W)
+        linea(f'recuadro <span class="V">verde</span> = rama abierta (modelo) · <span class="F">rojo</span> = rama cerrada · '
+              f'✓n = regla ya aplicada en el paso n · si el árbol no cabe, usa + zoom y desplázate', 'linea dim')
+
+# resultado
+with st.container(border=True):
+    titulo_caja('resultado')
+    if T is not None:
+        # resultado del árbol dibujado
+        if not T['done']:
+            linea('en proceso... avanza hasta el último paso (>|)', 'linea dim')
+        elif not T['open']:
+            linea('<span class="F">INSATISFACIBLE</span> · todas las ramas se cierran, la base de conocimiento es inconsistente')
+            por_letra = {a.letter: a for a in atoms}
+            choques = []
+            for n in T['nodes']:
+                if n.closed:
+                    letra = n.close_lits[0].lstrip('¬')
+                    a = por_letra[letra]
+                    txt = f'✕ «{esc(a.meaning)}» y «{esc(negar(a))}» no pueden ser ciertas a la vez ({letra}, ¬{letra})'
+                    if txt not in choques:
+                        choques.append(txt)
+            linea('<br>'.join(choques), 'linea F')
+        else:
+            linea(f'SATISFACIBLE · {len(T["open"])} abierta(s), {T["closed_count"]} cerrada(s)')
+            vistos = {}
+            for i, (v, _) in enumerate(models):
+                clave = tuple(v)
+                igual = f'&nbsp;&nbsp;<span class="dim">(igual a M{vistos[clave]})</span>' if clave in vistos else ''
+                vistos.setdefault(clave, i + 1)
+                linea('')
+                mostrar_modelo(i, v, igual)
+    else:
+        # resultado del método rápido
+        res = resolver(texto)
+        if not res['modelos']:
+            linea('<span class="F">INSATISFACIBLE</span> · todas las ramas se cierran, la base de conocimiento es inconsistente')
+            choques = [f'✕ «{esc(atoms[k].meaning)}» y «{esc(negar(atoms[k]))}» no pueden ser ciertas a la vez '
+                       f'({L[k]}, ¬{L[k]})' for k in res['choques']]
+            linea('<br>'.join(choques), 'linea F')
+        else:
+            n = len(res['modelos'])
+            if res['completo']:
+                cuantos = f'{n} rama(s) abierta(s) (modelos)'
+            else:
+                cuantos = f'se muestran las primeras {n} ramas abiertas (hay más)'
+            linea(f'SATISFACIBLE · {cuantos} · {res["cerradas"]} cerrada(s)')
+            linea('cada modelo está en su desplegable; ábrelo para ver lo que se cumple y lo que no', 'linea dim')
+            for i, v in enumerate(res['modelos']):
+                nv, nf, nx = v.count('V'), v.count('F'), v.count(None)
+                with st.expander(f'M{i + 1} · {nv} verdaderas · {nf} falsas · {nx} da igual', expanded=(i == 0 and len(atoms) <= 30)):
+                    mostrar_modelo(i, v)
