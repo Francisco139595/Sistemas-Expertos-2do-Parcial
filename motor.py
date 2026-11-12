@@ -1,4 +1,6 @@
-# Para correr el programa: py -3.12 -m streamlit run app.py
+# Para correr el programa: py -3.12 -m streamlit run app.py   (en Linux: streamlit run app.py)
+import re
+from dataclasses import dataclass, field
 import re
 from dataclasses import dataclass, field
 
