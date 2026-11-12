@@ -1,1 +1,9 @@
-streamlit>=1.37
+streamlit>=1.40
+# voz (oír): Whisper local y, de respaldo, Google
+faster-whisper
+SpeechRecognition
+# voz (hablar): edge-tts (voz neural) y, de respaldo, la voz de Windows
+edge-tts
+pyttsx3
+# opcional: F5-TTS / E2-TTS (pesado, mejor con tarjeta NVIDIA)
+# f5-tts

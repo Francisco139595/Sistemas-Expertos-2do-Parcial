@@ -291,8 +291,8 @@ def split_rules(text):
     out = []
     for line in re.split(r'\n+', text):
         line = line.strip()
-        if not line:
-            continue
+        if not line or line.startswith('#') or line.startswith('//'):
+            continue  # renglón vacío o comentario
         line = re.sub(r'^(?:[-*•]|\d+[.)]|R\d+\s*[:.)])\s*', '', line, flags=re.I)
         q = re.findall(r'[«“"]([^»”"]+)[»”"]', line)
         if q:
@@ -1028,6 +1028,525 @@ def arbol_en_texto(nodos):
     return lineas
 
 
+# 9. Encadenamiento hacia adelante y hacia atrás
+#    Las reglas se convierten a la forma de un sistema experto:  SI premisas ENTONCES conclusiones
+#    Una letra se guarda como (átomo, True) y su negación como (átomo, False).
+
+def literal(f):
+    # (átomo, valor) si f es una letra o una letra negada; si no, None
+    if f[0] == 'atom':
+        return (f[1], True)
+    if f[0] == 'not':
+        g = f[1]
+        if g[0] == 'atom':
+            return (g[1], False)
+        if g[0] == 'not':
+            return literal(g[1])
+    return None
+
+
+def lista_y(f):
+    # letras unidas con ∧ (también ¬(A ∨ B) = ¬A ∧ ¬B); si no se puede, None
+    l = literal(f)
+    if l:
+        return [l]
+    if f[0] == 'and':
+        a, b = lista_y(f[1]), lista_y(f[2])
+        return a + b if a is not None and b is not None else None
+    if f[0] == 'not' and f[1][0] == 'or':
+        return lista_y(('and', ('not', f[1][1]), ('not', f[1][2])))
+    if f[0] == 'not' and f[1][0] == 'not':
+        return lista_y(f[1][1])
+    return None
+
+
+def lista_o(f):
+    # letras unidas con ∨; si no se puede, None
+    l = literal(f)
+    if l:
+        return [l]
+    if f[0] == 'or':
+        a, b = lista_o(f[1]), lista_o(f[2])
+        return a + b if a is not None and b is not None else None
+    return None
+
+
+def base_de_reglas(rules):
+    # separa hechos y reglas SI-ENTONCES; lo que no tiene esa forma se reporta como ignorado
+    hechos, reglas, ignoradas = [], [], []
+
+    def agregar(et, prem, tipo, concl):
+        reglas.append({'regla': et, 'premisas': prem, 'tipo': tipo, 'conclusiones': concl})
+
+    for r in rules:
+        f = r.f
+        h = lista_y(f)
+        if h is not None:
+            for l in h:
+                hechos.append((l, r.label))
+            continue
+        if f[0] == 'imp':
+            concl = lista_y(f[2])
+            prem_y, prem_o = lista_y(f[1]), lista_o(f[1])
+            if concl is not None and prem_y is not None:
+                agregar(r.label, prem_y, 'y', concl)
+                continue
+            if concl is not None and prem_o is not None:
+                agregar(r.label, prem_o, 'o', concl)
+                continue
+        if f[0] == 'iff':
+            a, b = lista_y(f[1]), lista_y(f[2])
+            if a is not None and b is not None:
+                agregar(r.label, a, 'y', b)
+                agregar(r.label, b, 'y', a)
+                continue
+        ignoradas.append(r.label)
+    return hechos, reglas, ignoradas
+
+
+def texto_lit(l, L):
+    return ('' if l[1] else '¬') + L[l[0]]
+
+
+def encadenar_adelante(rules, L, meta=None):
+    # parte de los hechos y dispara cada regla cuyas premisas ya se cumplen
+    hechos, reglas, ignoradas = base_de_reglas(rules)
+    conocido = {}            # átomo -> (valor, de dónde salió, ciclo)
+    pasos, choques = [], []
+    agenda = []
+    for l, et in hechos:
+        a, v = l
+        if a in conocido and conocido[a][0] != v:
+            choques.append(f'{et}: {texto_lit(l, L)} contradice a {conocido[a][1]}')
+            continue
+        if a not in conocido:
+            conocido[a] = (v, et, 0)
+            agenda.append(l)
+    # índice: letra -> reglas donde aparece como premisa
+    por_premisa = {}
+    for i, rg in enumerate(reglas):
+        for p in rg['premisas']:
+            por_premisa.setdefault(p, []).append(i)
+    faltan = [len(rg['premisas']) for rg in reglas]
+    disparada = [False] * len(reglas)
+    k = 0
+    while k < len(agenda):
+        l = agenda[k]
+        k += 1
+        for i in por_premisa.get(l, []):
+            if disparada[i]:
+                continue
+            rg = reglas[i]
+            faltan[i] -= 1
+            if rg['tipo'] == 'y' and faltan[i] > 0:
+                continue
+            disparada[i] = True
+            usadas = [p for p in rg['premisas'] if conocido.get(p[0], (None,))[0] == p[1]]
+            ciclo = 1 + max(conocido[p[0]][2] for p in usadas)
+            nuevas = []
+            for c in rg['conclusiones']:
+                a, v = c
+                if a in conocido:
+                    if conocido[a][0] != v:
+                        choques.append(f'{rg["regla"]} concluye {texto_lit(c, L)} pero ya se sabía '
+                                       f'{texto_lit((a, conocido[a][0]), L)} ({conocido[a][1]})')
+                    continue
+                conocido[a] = (v, rg['regla'], ciclo)
+                agenda.append(c)
+                nuevas.append(c)
+            pasos.append({'regla': rg['regla'], 'premisas': usadas, 'tipo': rg['tipo'],
+                          'conclusiones': rg['conclusiones'], 'nuevas': nuevas, 'ciclo': ciclo})
+    alcanzada = None
+    if meta is not None:
+        alcanzada = meta[0] in conocido and conocido[meta[0]][0] == meta[1]
+    return {'hechos': len(hechos), 'reglas': len(reglas), 'ignoradas': ignoradas, 'pasos': pasos,
+            'conocido': conocido, 'choques': choques, 'meta': meta, 'alcanzada': alcanzada}
+
+
+def encadenar_atras(rules, L, meta, max_nodos=5000):
+    # parte de la meta y busca reglas que la concluyan; luego intenta demostrar sus premisas
+    hechos, reglas, ignoradas = base_de_reglas(rules)
+    hecho = {}
+    for l, et in hechos:
+        hecho.setdefault(l, et)
+    por_conclusion = {}
+    for i, rg in enumerate(reglas):
+        for c in rg['conclusiones']:
+            por_conclusion.setdefault(c, []).append(i)
+    resultado = {}           # letra -> True/False ya decidido
+    nodos = []
+
+    def nodo(padre, l, texto, estado):
+        nodos.append({'padre': padre, 'lit': l, 'texto': texto, 'estado': estado})
+        return len(nodos) - 1
+
+    def probar(l, padre, en_camino):
+        # regresa True si la letra l se puede demostrar
+        n = nodo(padre, l, '', '')
+        if len(nodos) > max_nodos:
+            nodos[n].update(texto='límite de nodos alcanzado', estado='falla')
+            return False
+        if l in hecho:
+            nodos[n].update(texto=f'es un hecho ({hecho[l]})', estado='ok')
+            return True
+        if (l[0], not l[1]) in hecho:
+            nodos[n].update(texto=f'no: contradice el hecho {hecho[(l[0], not l[1])]}', estado='falla')
+            return False
+        if l in resultado:
+            nodos[n].update(texto='ya demostrada arriba' if resultado[l] else 'ya se vio que no se puede demostrar',
+                            estado='ok' if resultado[l] else 'falla')
+            return resultado[l]
+        if l in en_camino:
+            nodos[n].update(texto='ciclo: se necesita a sí misma', estado='falla')
+            return False
+        candidatas = por_conclusion.get(l, [])
+        if not candidatas:
+            nodos[n].update(texto='no es un hecho y ninguna regla la concluye', estado='falla')
+            resultado[l] = False
+            return False
+        for i in candidatas:
+            rg = reglas[i]
+            un = ' ∧ ' if rg['tipo'] == 'y' else ' ∨ '
+            sub = nodo(n, None, f'por {rg["regla"]}: SI {un.join(texto_lit(p, L) for p in rg["premisas"])} '
+                                f'ENTONCES {", ".join(texto_lit(c, L) for c in rg["conclusiones"])}', '')
+            if rg['tipo'] == 'y':
+                ok = all(probar(p, sub, en_camino | {l}) for p in rg['premisas'])
+            else:
+                ok = any(probar(p, sub, en_camino | {l}) for p in rg['premisas'])
+            nodos[sub]['estado'] = 'ok' if ok else 'falla'
+            if ok:
+                nodos[n].update(texto=f'demostrada con {rg["regla"]}', estado='ok')
+                resultado[l] = True
+                return True
+        nodos[n].update(texto='ninguna regla que la concluye se pudo cumplir', estado='falla')
+        resultado[l] = False
+        return False
+
+    import sys
+    sys.setrecursionlimit(max(20000, sys.getrecursionlimit()))
+    ok = probar(meta, None, frozenset())
+    return {'demostrada': ok, 'nodos': nodos, 'ignoradas': ignoradas, 'hechos': len(hechos), 'reglas': len(reglas)}
+
+
+def atras_en_texto(nodos, L, atoms):
+    # escribe la demostración como carpetas: ├─ └─ │
+    hijos = {}
+    for i, n in enumerate(nodos):
+        if n['padre'] is not None:
+            hijos.setdefault(n['padre'], []).append(i)
+    lineas = []
+    pila = [(0, '', '')]
+    while pila:
+        i, pref, rama = pila.pop()
+        n = nodos[i]
+        marca = '✓' if n['estado'] == 'ok' else '✕'
+        if n['lit'] is not None:
+            a, v = n['lit']
+            frase = atoms[a].meaning if v else negar(atoms[a])
+            txt = f'¿{texto_lit(n["lit"], L)}? «{frase}»  {marca} {n["texto"]}'
+        else:
+            txt = f'{n["texto"]}  {marca}'
+        lineas.append((pref + rama + txt, n['estado']))
+        hs = hijos.get(i, [])
+        nuevo = pref + {'├─ ': '│  ', '└─ ': '   '}.get(rama, '')
+        for j, h in reversed(list(enumerate(hs))):
+            pila.append((h, nuevo, '└─ ' if j == len(hs) - 1 else '├─ '))
+    return lineas
+
+
+# 10. Hipótesis (diagnósticos a evaluar)
+#     Se leen de los comentarios con la forma  # h1: frase  y se evalúan contra la base.
+
+def leer_hipotesis(text):
+    hips = []
+    for line in text.splitlines():
+        m = re.match(r'^\s*(?:#|//)\s*(h\d+)\s*[:=-]\s*(.+?)\s*$', line, flags=re.I)
+        if m:
+            hips.append((m.group(1).lower(), m.group(2)))
+    return hips
+
+
+def consultar(atoms, rules, L, frase):
+    # evalúa cualquier frase contra la base: ¿se cumple siempre, a veces o nunca?
+    valid = [r for r in rules if r.f]
+    cx = Ctx()
+    cx.map = {a.key: a for a in atoms}
+    cx.list = list(atoms)
+    try:
+        f = parse(Seg(frase), cx)
+    except ValueError as e:
+        return {'frase': frase, 'error': str(e)}
+    letras = L + [a.letter for a in cx.list[len(atoms):]]
+    n = len(cx.list)
+
+    class Extra:
+        pass
+    si, no = Extra(), Extra()
+    si.f, si.label = f, 'consulta'
+    no.f, no.label = ('not', f), '¬consulta'
+    posible = bool(resolver_rapido(valid + [si], n, max_modelos=1)['modelos'])
+    contraria = bool(resolver_rapido(valid + [no], n, max_modelos=1)['modelos'])
+    if posible and not contraria:
+        estado = 'CONFIRMADA'
+    elif not posible and contraria:
+        estado = 'DESCARTADA'
+    elif posible and contraria:
+        estado = 'POSIBLE'
+    else:
+        estado = 'BASE INCONSISTENTE'
+    nuevas = [a.meaning for a in cx.list[len(atoms):]]
+    return {'frase': frase, 'f': f, 'formula': fstr(f, letras), 'estado': estado, 'nuevas': nuevas}
+
+
+def evaluar_hipotesis(text, atoms, rules, L):
+    # para cada hipótesis del archivo (# h1: frase): ¿se cumple en todos los modelos, en algunos o en ninguno?
+    valid = [r for r in rules if r.f]
+    out = []
+    for nombre, frase in leer_hipotesis(text):
+        c = consultar(atoms, rules, L, frase)
+        c['nombre'] = nombre
+        if 'error' not in c:
+            c['nueva'] = bool(c['nuevas'])
+            meta = literal(c['f'])
+            c['atras'] = None
+            if meta is not None and meta[0] < len(atoms):
+                c['atras'] = encadenar_atras(valid, L, meta)['demostrada']
+            del c['f']
+        out.append(c)
+    return out
+
+
+def consecuencias(rules, n_atoms, max_atomos=400):
+    # letras que valen lo mismo en todos los modelos (lo que se sabe con certeza)
+    valid = [r for r in rules if r.f]
+    base = resolver_rapido(valid, n_atoms, max_modelos=1)
+    if not base['modelos']:
+        return None
+    if n_atoms > max_atomos:
+        return 'grande'
+    modelo = base['modelos'][0]
+    seguras = []
+
+    class Extra:
+        pass
+    for i, v in enumerate(modelo):
+        if v is None:
+            continue
+        e = Extra()
+        e.label = 'prueba'
+        e.f = ('not', ('atom', i)) if v == 'V' else ('atom', i)
+        # si no hay ningún modelo con el valor contrario, ese valor es seguro
+        if not resolver_rapido(valid + [e], n_atoms, max_modelos=1)['modelos']:
+            seguras.append((i, v))
+    return seguras
+
+
+def parecidas(frase, atoms, n=3):
+    # átomos con texto parecido, para avisar cuando algo está escrito distinto
+    import difflib
+    claves = {norm(a.meaning): a.meaning for a in atoms}
+    hallados = difflib.get_close_matches(norm(frase), list(claves), n=n, cutoff=0.5)
+    return [claves[h] for h in hallados]
+
+
+# 11. Motor de explicación
+#     Para decir por qué una hipótesis se descarta (o se confirma):
+#     1) se busca el grupo más chico de reglas que ya choca con la hipótesis
+#     2) se aplican sus consecuencias obligadas una por una, guardando qué regla las produjo
+#     3) se cuenta solo el camino que lleva a la contradicción
+
+def _frase_lit(l, atoms):
+    a = abs(l) - 1
+    return atoms[a].meaning if l > 0 else negar(atoms[a])
+
+
+def _nucleo(reglas, extra, n_atoms, max_reglas=300):
+    # quita reglas una por una mientras la contradicción se mantenga
+    if len(reglas) > max_reglas:
+        return reglas
+    actuales = list(reglas)
+    i = 0
+    while i < len(actuales):
+        prueba = actuales[:i] + actuales[i + 1:]
+        if not resolver_rapido(prueba + [extra], n_atoms, max_modelos=1)['modelos']:
+            actuales = prueba
+        else:
+            i += 1
+    return actuales
+
+
+def _cadena(reglas, extra, atoms, L):
+    # propaga consecuencias obligadas guardando la razón de cada una
+    clausulas = []
+    for r in reglas + [extra]:
+        for c in limpiar(a_clausulas(r.f)):
+            clausulas.append((c, r))
+    valor = {}
+    razon = {}       # letra -> (regla, letras que la obligaron)
+    orden = []
+    while True:
+        cambio = False
+        for c, r in clausulas:
+            libres = [x for x in c if abs(x) not in valor]
+            ciertas = [x for x in c if abs(x) in valor and valor[abs(x)] == (x > 0)]
+            if ciertas:
+                continue
+            if not libres:
+                return orden, razon, (c, r)          # todas falsas: contradicción
+            if len(libres) == 1:
+                l = libres[0]
+                valor[abs(l)] = l > 0
+                razon[l] = (r, [-x for x in c if x != l])
+                orden.append(l)
+                cambio = True
+        if not cambio:
+            return orden, razon, None
+
+
+def explicar(atoms, rules, L, f, nombre='la hipótesis'):
+    # explica por qué la base junto con la fórmula f no tiene modelos
+    valid = [r for r in rules if r.f]
+
+    class Extra:
+        pass
+    extra = Extra()
+    extra.f, extra.label, extra.raw = f, nombre, nombre
+    n = len(atoms)
+    if resolver_rapido(valid + [extra], n, max_modelos=1)['modelos']:
+        return None
+    nucleo = _nucleo(valid, extra, n)
+    orden, razon, choque = _cadena(nucleo, extra, atoms, L)
+    pasos = []
+    if choque is None:
+        # no basta con consecuencias directas: se explica con las reglas que chocan entre sí
+        pasos.append('no hay una sola cadena directa; hay que revisar casos. estas reglas no se pueden cumplir juntas:')
+        for r in nucleo:
+            pasos.append(f'{r.label}: {r.raw}')
+        return {'pasos': pasos, 'reglas': [r.label for r in nucleo]}
+    # solo los pasos que llevan a la contradicción
+    necesarios, pendientes = set(), [-x for x in choque[0]]
+    while pendientes:
+        l = pendientes.pop()
+        if l in necesarios or l not in razon:
+            continue
+        necesarios.add(l)
+        pendientes.extend(razon[l][1])
+    for l in orden:
+        if l not in necesarios:
+            continue
+        r, porque = razon[l]
+        frase = _frase_lit(l, atoms)
+        if r is extra:
+            pasos.append(f'se supone {nombre}: {frase}')
+        elif not porque:
+            pasos.append(f'{r.label} es un hecho: {frase}')
+        else:
+            antes = ' y '.join(_frase_lit(x, atoms) for x in porque)
+            pasos.append(f'como {antes}, por {r.label} → {frase}')
+    c, r = choque
+    if r is extra:
+        pasos.append(f'✕ pero eso contradice {nombre}: contradicción')
+    else:
+        pasos.append(f'✕ pero {r.label} dice «{r.raw}», y con lo anterior ya no se puede cumplir: contradicción')
+    return {'pasos': pasos, 'reglas': sorted({razon[l][0].label for l in necesarios} | {r.label})}
+
+
+# 12. Interpretar pistas dichas con otras palabras
+#     Convierte lo que se dijo («el saboteador no habla wookiee») a la frase exacta de la base
+#     («no habla wookiee el saboteador»). No importa el orden de las palabras y tolera errores
+#     pequeños de la transcripción («había» por «habla»).
+
+VACIAS = {'el', 'la', 'los', 'las', 'un', 'una', 'unos', 'unas', 'de', 'del', 'al', 'a', 'en', 'que', 'se', 'lo',
+          'le', 'su', 'sus', 'por', 'con', 'para', 'y', 'e', 'o', 'u'}
+NEGACIONES = {'no', 'nunca', 'tampoco', 'jamas', 'ni'}
+
+
+def _palabras(texto):
+    return [w for w in re.findall(r'[a-zñ0-9]+', norm(texto)) if w not in VACIAS]
+
+
+def _parecido(a, b):
+    import difflib
+    if a == b:
+        return 1.0
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _puntaje(dichas, del_atomo):
+    # cuántas palabras del átomo aparecen en lo dicho (con tolerancia a errores)
+    if not del_atomo or not dichas:
+        return 0.0
+    usadas = set()
+    aciertos = 0.0
+    for w in del_atomo:
+        mejor, cual = 0.0, None
+        for j, d in enumerate(dichas):
+            if j in usadas:
+                continue
+            p = _parecido(w, d)
+            if p > mejor:
+                mejor, cual = p, j
+        if mejor >= 0.75:
+            aciertos += mejor
+            usadas.add(cual)
+    sobran = len(dichas) - len(usadas)
+    return aciertos / (len(del_atomo) + 0.5 * sobran)
+
+
+def interpretar_pista(texto, atoms, minimo=0.6):
+    # regresa una lista de hechos con la frase exacta de la base y qué tan seguro está
+    texto = texto.strip()
+    if ':' in texto:
+        texto = texto.split(':', 1)[1]          # «La comandante informa: …» -> solo la pista
+    piezas = [p for p in re.split(r'[.;]|,|\s+y\s+|\s+e\s+', texto) if p.strip()]
+    resultados = []
+    for pieza in piezas:
+        todas = re.findall(r'[a-zñ0-9]+', norm(pieza))
+        negada = sum(1 for w in todas if w in NEGACIONES) % 2 == 1
+        dichas = [w for w in _palabras(pieza) if w not in NEGACIONES]
+        mejor, cual = 0.0, None
+        for a in atoms:
+            p = _puntaje(dichas, [w for w in _palabras(a.meaning) if w not in NEGACIONES])
+            if p > mejor:
+                mejor, cual = p, a
+        if cual is None or mejor < minimo:
+            resultados.append({'dicho': pieza.strip(), 'frase': None, 'confianza': round(mejor, 2)})
+            continue
+        # el átomo mismo puede traer un «no» adentro
+        neg_atomo = any(w in NEGACIONES for w in re.findall(r'[a-zñ0-9]+', norm(cual.meaning)))
+        if negada != neg_atomo:
+            frase = negar(cual)
+        else:
+            frase = cual.meaning
+        frase = frase[0].upper() + frase[1:]
+        resultados.append({'dicho': pieza.strip(), 'frase': frase, 'letra': cual.letter,
+                           'negada': negada != neg_atomo, 'confianza': round(mejor, 2)})
+    return resultados
+
+
+def formula_de(atoms, frase):
+    # traduce una frase usando los átomos que ya tiene la base
+    cx = Ctx()
+    cx.map = {a.key: a for a in atoms}
+    cx.list = list(atoms)
+    f = parse(Seg(frase), cx)
+    return f, cx.list[len(atoms):]
+
+
+def dominio(text):
+    # título de la base: primer comentario del archivo
+    for line in text.splitlines():
+        line = line.strip()
+        if line.startswith('#'):
+            t = line.lstrip('#').strip()
+            if t:
+                t = re.sub(r'^base de conocimientos?\s*[·:\-]\s*', '', t, flags=re.I)
+                return t
+        elif line:
+            break
+    return ''
+
+
 def y_lista(items):
     # ['a','b','c'] -> 'a, b y c'
     if not items:
@@ -1045,7 +1564,7 @@ def negar(atom):
     if atom.neg:
         return atom.neg
     w = atom.meaning.split()
-    if len(w) >= 3 and norm(w[0]) in DETS:
+    if len(w) >= 3 and w[0].lower() in DETS:   # sin quitar acentos: «está» no es «esta»
         k = 2
         while k + 1 < len(w) and norm(w[k]) in ('de', 'del'):  # «la luz del cuarto está…»
             k += 2
@@ -1067,6 +1586,285 @@ def frase_modelo(v, atoms):
     if libres:
         txt += ' Da igual si ' + y_lista(libres) + ' o no.'
     return txt
+
+
+# 13. Preguntas tipo Akinator
+#     Hacia adelante: el programa pregunta características; cada respuesta se agrega como hecho
+#       y se descartan las hipótesis que ya no pueden ser. Escoge la pregunta que mejor parte
+#       a las hipótesis que quedan, hasta que queda una.
+#     Hacia atrás: se escoge una hipótesis (la meta) y el programa busca las reglas que la concluyen;
+#       de sus premisas pregunta solo lo que no puede deducir, hasta demostrarla o descartarla.
+#     Mundo cerrado: algo que concluyen las reglas solo es cierto si alguna de esas reglas se cumple
+#       (así funciona un sistema experto de personajes: si no tiene sus características, no es él).
+
+class Hecho:
+    # regla extra: respuestas, la hipótesis que se supone, reglas de mundo cerrado
+    def __init__(self, f, label, raw=''):
+        self.f, self.label, self.raw = f, label, raw or label
+
+
+def _modelo(reglas, n, extra=()):
+    res = resolver_rapido(list(reglas) + list(extra), n, max_modelos=1, max_segundos=5, max_nodos_arbol=0)
+    return res['modelos'][0] if res['modelos'] else None
+
+
+def _sat(reglas, n, extra=()):
+    return _modelo(reglas, n, extra) is not None
+
+
+def es_de_produccion(rules):
+    # True si todas las reglas son  SI a y b y ... ENTONCES c  (o hechos sueltos)
+    hay_reglas = False
+    for r in rules:
+        if not r.f:
+            continue
+        if lista_y(r.f) is not None:
+            continue
+        if r.f[0] == 'imp' and lista_y(r.f[1]) is not None and literal(r.f[2]) is not None:
+            hay_reglas = True
+            continue
+        return False
+    return hay_reglas
+
+
+def mundo_cerrado(rules, atoms):
+    # para cada letra que concluyen las reglas: «solo es cierta si se cumple alguna de esas reglas»
+    hechos = set()
+    cuerpos = {}
+    for r in rules:
+        if not r.f:
+            continue
+        h = lista_y(r.f)
+        if h is not None:
+            hechos.update(l for l in h if l[1])
+            continue
+        if r.f[0] == 'imp':
+            c = literal(r.f[2])
+            if c and c[1]:
+                cuerpos.setdefault(c[0], []).append((r.f[1], r.label))
+    extra = []
+    for a, lista in cuerpos.items():
+        if (a, True) in hechos:
+            continue
+        o = lista[0][0]
+        for f, _ in lista[1:]:
+            o = ('or', o, f)
+        etiquetas = y_lista([et for _, et in lista])
+        extra.append(Hecho(('imp', ('atom', a), o), f'{etiquetas} (mundo cerrado)',
+                           f'«{atoms[a].meaning}» solo puede ser cierto si se cumple {etiquetas}'))
+    return extra
+
+
+def hipotesis_juego(text, atoms, rules):
+    # las hipótesis del archivo (# h1: ...); si no hay, las conclusiones finales de las reglas
+    hips = []
+    for nombre, frase in leer_hipotesis(text):
+        try:
+            f, nuevas = formula_de(atoms, frase)
+        except ValueError:
+            continue
+        if not nuevas:
+            hips.append({'nombre': nombre, 'frase': frase, 'f': f})
+    if hips:
+        return hips, 'archivo'
+    concluidas, premisas = [], set()
+    for r in rules:
+        if r.f and r.f[0] == 'imp':
+            for l in lista_y(r.f[2]) or []:
+                if l[1] and l[0] not in concluidas:
+                    concluidas.append(l[0])
+            for l in lista_y(r.f[1]) or lista_o(r.f[1]) or []:
+                premisas.add(l[0])
+    metas = [a for a in concluidas if a not in premisas]
+    return [{'nombre': f'h{i + 1}', 'frase': atoms[a].meaning, 'f': ('atom', a)} for i, a in enumerate(metas)], 'reglas'
+
+
+def atomos_de(f, acc=None):
+    acc = set() if acc is None else acc
+    if f[0] == 'atom':
+        acc.add(f[1])
+    else:
+        for g in f[1:]:
+            atomos_de(g, acc)
+    return acc
+
+
+def preguntables(rules, n, hips, cerrado):
+    # letras que se le pueden preguntar al usuario
+    en_hip = set()
+    for h in hips:
+        atomos_de(h['f'], en_hip)
+    concluidas = set()
+    if cerrado:
+        for r in rules:
+            if r.f and r.f[0] == 'imp':
+                for l in lista_y(r.f[2]) or lista_o(r.f[2]) or []:
+                    concluidas.add(l[0])
+    return [a for a in range(n) if a not in en_hip and a not in concluidas]
+
+
+def pregunta_texto(atom):
+    t = atom.meaning
+    return '¿' + t[0].upper() + t[1:] + '?'
+
+
+def estado_juego(atoms, rules, hips, respuestas, cerrado):
+    # respuestas: lista de (letra, True/False/None)
+    n = len(atoms)
+    base = [r for r in rules if r.f]
+    extra = mundo_cerrado(base, atoms) if cerrado else []
+    resp = []
+    for i, (a, v) in enumerate(respuestas):
+        if v is None:
+            continue
+        frase = atoms[a].meaning if v else negar(atoms[a])
+        resp.append(Hecho(('atom', a) if v else ('not', ('atom', a)), f'P{i + 1}', f'contestaste: {frase}'))
+    kb = base + extra + resp
+    estados = []
+    for h in hips:
+        si = _sat(kb, n, [Hecho(h['f'], 'h')])
+        no = _sat(kb, n, [Hecho(('not', h['f']), 'no h')])
+        estados.append('CONFIRMADA' if si and not no else 'POSIBLE' if si else 'DESCARTADA' if no else 'BASE INCONSISTENTE')
+    return {'kb': kb, 'n': n, 'estados': estados, 'extra': extra, 'resp': resp}
+
+
+def pregunta_adelante(atoms, juego, hips, candidatos, ya, max_segundos=6):
+    # escoge la pregunta que mejor parte a las hipótesis que siguen vivas
+    import time
+    inicio = time.time()
+    kb, n = juego['kb'], juego['n']
+    vivas = [h for h, e in zip(hips, juego['estados']) if e in ('POSIBLE', 'CONFIRMADA')]
+    if len(vivas) <= 1:
+        return None
+    # con un modelo de cada hipótesis se ve qué letras las distinguen (para probar esas primero)
+    modelos = [_modelo(kb, n, [Hecho(h['f'], 'h')]) for h in vivas]
+    orden = []
+    for a in candidatos:
+        if a in ya:
+            continue
+        vals = [m[a] for m in modelos if m]
+        v, f = vals.count('V'), vals.count('F')
+        orden.append((-min(v, f), -(v + f), a))
+    orden.sort()
+    mejor = None
+    for _, _, a in orden:
+        if mejor and time.time() - inicio > max_segundos:
+            break
+        si = [h['nombre'] for h in vivas if _sat(kb, n, [Hecho(h['f'], 'h'), Hecho(('atom', a), 'p')])]
+        no = [h['nombre'] for h in vivas if _sat(kb, n, [Hecho(h['f'], 'h'), Hecho(('not', ('atom', a)), 'p')])]
+        if not si or not no:
+            continue                    # la respuesta ya se sabe
+        if len(si) == len(vivas) and len(no) == len(vivas):
+            continue                    # no distingue nada
+        puntos = max(len(si), len(no))
+        if mejor is None or puntos < mejor['puntos']:
+            mejor = {'letra': a, 'si': si, 'no': no, 'puntos': puntos}
+            if puntos <= (len(vivas) + 1) // 2:
+                break                   # ya parte a la mitad: no hay una mejor
+    return mejor
+
+
+def pregunta_atras(atoms, rules, L, juego, meta, candidatos, respuestas, max_segundos=6):
+    # encadenamiento hacia atrás: de la meta a las reglas que la concluyen y de ahí a sus premisas
+    import time
+    inicio = time.time()
+    sabido = {a: v for a, v in respuestas if v is not None}
+    ya = {a for a, _ in respuestas}
+    preg = set(candidatos)
+    hechos, reglas, _ = base_de_reglas([r for r in rules if r.f])
+    hecho = {l for l, _ in hechos}
+    por_conclusion = {}
+    for i, rg in enumerate(reglas):
+        for c in rg['conclusiones']:
+            por_conclusion.setdefault(c, []).append(i)
+
+    def falla(l):
+        a, v = l
+        return (a in sabido and sabido[a] != v) or (a, not v) in hecho
+
+    def buscar(l, camino, en_camino):
+        # regresa ('si'|'no'|'?', (letra, camino) si hay que preguntar)
+        a, v = l
+        if a in sabido:
+            return ('si' if sabido[a] == v else 'no'), None
+        if l in hecho:
+            return 'si', None
+        if (a, not v) in hecho or l in en_camino:
+            return 'no', None
+        for i in por_conclusion.get(l, []):
+            rg = reglas[i]
+            paso = camino + [(l, rg['regla'])]
+            if rg['tipo'] == 'y':
+                if any(falla(p) for p in rg['premisas']):
+                    continue
+                res = 'si'
+                for p in rg['premisas']:
+                    r, q = buscar(p, paso, en_camino | {l})
+                    if r == 'no':
+                        res = 'no'
+                        break
+                    if r == '?':
+                        return '?', q
+                if res == 'si':
+                    return 'si', None
+            else:
+                for p in rg['premisas']:
+                    r, q = buscar(p, paso, en_camino | {l})
+                    if r == 'si':
+                        return 'si', None
+                    if r == '?':
+                        return '?', q
+        if a in preg and a not in ya:
+            return '?', (a, camino)
+        return 'no', None
+
+    meta_l = literal(meta['f'])
+    if meta_l is not None:
+        r, q = buscar(meta_l, [], frozenset())
+        if r == '?':
+            a, camino = q
+            pasos = [f'meta: «{atoms[x[0]].meaning if x[1] else negar(atoms[x[0]])}» → la concluye {et}'
+                     if k == 0 else
+                     f'submeta: «{atoms[x[0]].meaning if x[1] else negar(atoms[x[0]])}» → la concluye {et}'
+                     for k, (x, et) in enumerate(camino)]
+            pasos.append(f'falta un dato que ninguna regla da: «{atoms[a].meaning}»')
+            return {'letra': a, 'porque': pasos, 'como': 'reglas'}
+    # si las reglas ya no dicen qué preguntar: lo que la meta obliga (si no se cumple, se descarta)
+    kb, n = juego['kb'], juego['n']
+    h = Hecho(meta['f'], 'meta')
+    no_h = Hecho(('not', meta['f']), 'no meta')
+    for a in candidatos:
+        if a in ya or time.time() - inicio > max_segundos:
+            continue
+        con_si = _sat(kb, n, [h, Hecho(('atom', a), 'p')])
+        con_no = _sat(kb, n, [h, Hecho(('not', ('atom', a)), 'p')])
+        if con_si != con_no:
+            esperado = atoms[a].meaning if con_si else negar(atoms[a])
+            return {'letra': a, 'porque': [f'si fuera «{meta["frase"]}», tendría que cumplirse «{esperado}»'],
+                    'como': 'prediccion'}
+    # o algo que, contestado, la deja confirmada
+    for a in candidatos:
+        if a in ya or time.time() - inicio > max_segundos:
+            continue
+        for v in (True, False):
+            lit = Hecho(('atom', a) if v else ('not', ('atom', a)), 'p')
+            if _sat(kb, n, [lit]) and not _sat(kb, n, [no_h, lit]):
+                frase = atoms[a].meaning if v else negar(atoms[a])
+                return {'letra': a, 'porque': [f'si «{frase}», ya quedaría demostrado «{meta["frase"]}»'],
+                        'como': 'confirmar'}
+    return None
+
+
+def respuesta_si_no(texto):
+    # 'si', 'no', 'nose' o None, a partir de lo que se dijo
+    t = ' ' + ' '.join(re.findall(r'[a-zñ0-9]+', norm(texto))) + ' '
+    if re.search(r' (no se|no lo se|no estoy segur[oa]|quiza|quizas|tal vez|a lo mejor|ni idea) ', t):
+        return 'nose'
+    if re.search(r' (no|nop|nel|negativo|falso|nunca|para nada|tampoco) ', t):
+        return 'no'
+    if re.search(r' (si|sip|simon|claro|correcto|afirmativo|cierto|verdad|exacto|obvio|asi es|efectivamente) ', t):
+        return 'si'
+    return None
 
 
 if __name__ == '__main__':

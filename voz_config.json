@@ -1,0 +1,12 @@
+{
+  "whisper_modelo": "small",
+  "whisper_dispositivo": "auto",
+  "voz_edge": "es-MX-DaliaNeural",
+  "velocidad": "-5%",
+  "f5_usar": false,
+  "f5_modelo": {
+    "model": "E2TTS_Base"
+  },
+  "f5_audio_referencia": "",
+  "f5_texto_referencia": ""
+}
