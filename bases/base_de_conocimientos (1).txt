@@ -1,0 +1,34 @@
+# Base de conocimientos · Urgencias en la enfermería de Hogwarts (Harry Potter)
+# Examen de práctica avanzada · descargado el 2026-11-11 22:05
+# Formato: una regla por línea. Las líneas que empiezan con # son comentarios.
+#
+# Diagnósticos a evaluar (hipótesis):
+#   h1: tiene viruela de dragón el alumno
+#   h2: escuchó el grito de una mandrágora el alumno
+#   h3: bebió una poción mal preparada el alumno
+#   h4: está confundido por un hechizo el alumno
+#   h5: está bajo una maldición el alumno
+
+# Reglas
+Se ilumina el detector de maldiciones si y solo si reacciona a la luz la piel del alumno
+Si reacciona a la luz la piel del alumno, tiene fiebre el alumno
+Si tiene el sistema nervioso afectado el alumno, entonces tiene fiebre el alumno o tiene la piel escamosa el alumno
+Cuando está confundido por un hechizo el alumno, tiene el sistema nervioso afectado el alumno
+Si está confundido por un hechizo el alumno, tiene residuos de poción la sangre del alumno
+Si escuchó el grito de una mandrágora el alumno, entonces reacciona a la luz la piel del alumno
+Cuando bebió una poción mal preparada el alumno, tiene el sistema nervioso afectado el alumno
+Si está bajo una maldición el alumno, entonces perdió la memoria reciente el alumno
+Si bebió una poción mal preparada el alumno, perdió la memoria reciente el alumno
+Si está bajo una maldición el alumno, entonces no echa chispas por las orejas el alumno o tiene la piel escamosa el alumno
+Si escuchó el grito de una mandrágora el alumno, entonces no tiene manchas verdes el alumno o no echa chispas por las orejas el alumno
+Tiene viruela de dragón el alumno o escuchó el grito de una mandrágora el alumno o bebió una poción mal preparada el alumno o está confundido por un hechizo el alumno o está bajo una maldición el alumno
+Si tiene la piel escamosa el alumno, entonces no tiene manchas verdes el alumno
+Si perdió la memoria reciente el alumno, no recuerda la clase el alumno
+Si tiene manchas verdes el alumno, muestra rastros de magia oscura la varita
+Si tiene viruela de dragón el alumno, entonces no tiene tos el alumno o está dormido el alumno
+Si tiene residuos de poción la sangre del alumno, entonces tiene la piel escamosa el alumno o no muestra rastros de magia oscura la varita
+Si tiene viruela de dragón el alumno, entonces no tiene tos el alumno o tiene la piel escamosa el alumno
+
+# Hechos observados
+Tiene manchas verdes el alumno
+No recuerda la clase el alumno

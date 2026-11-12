@@ -1,0 +1,23 @@
+# Base de conocimientos · Caso clínico en el Princeton-Plainsboro (Dr. House)
+# Examen de práctica · descargado el 2026-11-11 21:58
+# Formato: una regla por línea. Las líneas que empiezan con # son comentarios.
+#
+# Diagnósticos a evaluar (hipótesis):
+#   h1: tiene amiloidosis el paciente
+#   h2: tiene lupus el paciente
+#   h3: tiene sarcoidosis el paciente
+
+# Reglas
+Si ataca al cuerpo el sistema inmune, no tiene convulsiones el paciente
+Cuando están inflamados los riñones, no tiene dolor articular el paciente
+Cuando tiene sarcoidosis el paciente, están inflamados los riñones
+Tiene amiloidosis el paciente o tiene lupus el paciente o tiene sarcoidosis el paciente
+Si tiene toxinas la sangre, no sale alterado el análisis de orina
+Si está inflamado el corazón, tiene erupciones en la piel el paciente
+Cuando tiene sarcoidosis el paciente, ataca al cuerpo el sistema inmune
+Si tiene amiloidosis el paciente, está inflamado el corazón
+Si tiene lupus el paciente, tiene toxinas la sangre
+Cuando tiene lupus el paciente, ataca al cuerpo el sistema inmune
+
+# Hechos observados
+Tiene dolor articular el paciente
